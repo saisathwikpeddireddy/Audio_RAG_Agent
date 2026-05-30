@@ -1,15 +1,15 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { upload } from "@vercel/blob/client";
 import type { LibraryFile } from "@/lib/types";
 
-// Local-only states before the file is handed off to background indexing.
 type LocalStatus = "uploading" | "queued" | "error";
 
 interface Item {
   name: string;
-  fileId?: string; // set once /api/ingest accepts the job
+  fileId?: string;
   local: LocalStatus;
   detail?: string;
 }
@@ -51,7 +51,6 @@ export default function Uploader({
           handleUploadUrl: "/api/upload",
         });
 
-        // Hand off to background indexing; the endpoint returns 202 immediately.
         const res = await fetch("/api/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -63,7 +62,7 @@ export default function Uploader({
         const entry = data.entry as LibraryFile | undefined;
         if (entry) {
           patch(file.name, { fileId: entry.file_id, local: "queued" });
-          onIndexed?.(entry); // shows up as "processing"; page polling tracks it
+          onIndexed?.(entry);
         }
       } catch (e) {
         patch(file.name, { local: "error", detail: (e as Error).message });
@@ -72,19 +71,17 @@ export default function Uploader({
     setBusy(false);
   }
 
-  // Resolve what to show for an item: live library status wins once indexing
-  // has been handed off; otherwise the local upload state.
-  function view(it: Item): { badge: string; cls: string; detail?: string } {
+  function view(it: Item): { badge: string; cls: string; detail?: string; working: boolean } {
     const lib = it.fileId ? libById.get(it.fileId) : undefined;
     if (lib) {
       if (lib.status === "ready")
-        return { badge: "indexed", cls: "done", detail: `${lib.children} sentences indexed` };
-      if (lib.status === "failed") return { badge: "failed", cls: "error", detail: lib.error };
-      return { badge: "indexing", cls: "working", detail: "transcribing & embedding…" };
+        return { badge: "indexed", cls: "done", detail: `${lib.children} sentences indexed`, working: false };
+      if (lib.status === "failed") return { badge: "failed", cls: "error", detail: lib.error, working: false };
+      return { badge: "indexing", cls: "working", detail: "transcribing & embedding…", working: true };
     }
-    if (it.local === "uploading") return { badge: "uploading", cls: "working" };
-    if (it.local === "queued") return { badge: "queued", cls: "working" };
-    return { badge: "error", cls: "error", detail: it.detail };
+    if (it.local === "uploading") return { badge: "uploading", cls: "working", working: true };
+    if (it.local === "queued") return { badge: "queued", cls: "working", working: true };
+    return { badge: "error", cls: "error", detail: it.detail, working: false };
   }
 
   return (
@@ -100,7 +97,7 @@ export default function Uploader({
         </div>
       </div>
 
-      <div
+      <motion.div
         className={`drop ${hover ? "hover" : ""}`}
         onClick={() => inputRef.current?.click()}
         onDragOver={(e) => {
@@ -113,6 +110,8 @@ export default function Uploader({
           setHover(false);
           processFiles(e.dataTransfer.files);
         }}
+        animate={hover ? { scale: 1.03, rotate: -0.6 } : { scale: 1, rotate: 0 }}
+        transition={{ type: "spring", stiffness: 300, damping: 15 }}
       >
         {busy ? (
           <span>
@@ -121,13 +120,13 @@ export default function Uploader({
           </span>
         ) : (
           <>
-            <div style={{ fontSize: 15, color: "var(--text)" }}>Drop MP3 files here, or click to browse</div>
+            <div className="drop-big">{hover ? "Drop it here! 🎉" : "Drop MP3s here, or click to browse"}</div>
             <div className="muted" style={{ marginTop: 6 }}>
-              Transcribed by Groq Whisper, indexed in Pinecone — indexing runs in the background.
+              Transcribed by Groq Whisper · indexed in Pinecone · runs in the background
             </div>
           </>
         )}
-      </div>
+      </motion.div>
 
       <input
         ref={inputRef}
@@ -138,18 +137,34 @@ export default function Uploader({
         onChange={(e) => e.target.files && processFiles(e.target.files)}
       />
 
-      {items.map((it) => {
-        const v = view(it);
-        return (
-          <div className="file" key={it.name}>
-            <div>
-              <div>{it.name}</div>
-              {v.detail && <div className="muted">{v.detail}</div>}
-            </div>
-            <span className={`badge ${v.cls}`}>{v.badge}</span>
-          </div>
-        );
-      })}
+      <AnimatePresence>
+        {items.map((it) => {
+          const v = view(it);
+          return (
+            <motion.div
+              className="cassette"
+              key={it.name}
+              layout
+              initial={{ opacity: 0, scale: 0.85, y: -10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ type: "spring", stiffness: 300, damping: 15 }}
+            >
+              <div className="cassette-left">
+                <div className="reels">
+                  <span className={`reel ${v.working ? "spinning" : ""}`} />
+                  <span className={`reel ${v.working ? "spinning" : ""}`} />
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div className="cassette-name">{it.name}</div>
+                  {v.detail && <div className="cassette-detail">{v.detail}</div>}
+                </div>
+              </div>
+              <span className={`badge ${v.cls}`}>{v.badge}</span>
+            </motion.div>
+          );
+        })}
+      </AnimatePresence>
     </div>
   );
 }

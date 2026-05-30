@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     const { answer, clips } = await generateReel(query, hits);
     // Heal duplicate/adjacent windows into continuous playback segments.
     const fused = fuseClips(clips, config.fuseGapMs);
-    return NextResponse.json({ hits, clips: fused, answer });
+    return NextResponse.json({ hits, clips: fused, answer, rawClips: clips.length });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }

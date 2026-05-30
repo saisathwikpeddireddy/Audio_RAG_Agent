@@ -1,13 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { AnimatePresence, motion } from "framer-motion";
 import Uploader from "@/components/Uploader";
 import QueryPanel from "@/components/QueryPanel";
 import type { LibraryFile } from "@/lib/types";
+import type { BlobMode } from "@/components/ReactiveBlob";
+
+// Three.js is client-only and heavy — load it lazily, never on the server.
+const ReactiveBlob = dynamic(() => import("@/components/ReactiveBlob"), { ssr: false });
 
 export default function Home() {
   const [tab, setTab] = useState<"upload" | "query">("upload");
   const [library, setLibrary] = useState<LibraryFile[]>([]);
+  const [blobMode, setBlobMode] = useState<BlobMode>("idle");
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function refresh() {
@@ -19,13 +27,11 @@ export default function Home() {
     }
   }
 
-  // Load previously-indexed files once on mount.
   useEffect(() => {
     refresh();
   }, []);
 
-  // Poll while any file is still processing, so status flips to ready/failed
-  // without a manual refresh.
+  // Poll while any file is still processing, so status flips without a refresh.
   const processing = library.some((f) => f.status === "processing");
   useEffect(() => {
     if (processing && !pollRef.current) {
@@ -42,12 +48,10 @@ export default function Home() {
     };
   }, [processing]);
 
-  // Upsert by file_id so both tabs reflect a file the moment it's enqueued.
   const onIndexed = useCallback((entry: LibraryFile) => {
     setLibrary((prev) => [...prev.filter((f) => f.file_id !== entry.file_id), entry]);
   }, []);
 
-  // Re-run ingestion for a failed (or stuck) file — idempotent on the vectors.
   const reingest = useCallback(
     async (file: LibraryFile) => {
       onIndexed({ ...file, status: "processing", error: undefined });
@@ -71,33 +75,64 @@ export default function Home() {
   );
 
   return (
-    <main className="wrap">
-      <h1 className="title">Audio RAG Auto-Editor</h1>
-      <p className="subtitle">
-        Upload your audio, ask a question, and get a written answer plus a seamless highlight reel
-        stitched from the most relevant moments — powered by Groq Whisper, Pinecone, and Gemini.
-      </p>
+    <>
+      <ReactiveBlob mode={blobMode} analyser={analyser} />
 
-      <div className="tabs">
-        <button className={`tab ${tab === "upload" ? "active" : ""}`} onClick={() => setTab("upload")}>
-          Upload &amp; Index
-        </button>
-        <button className={`tab ${tab === "query" ? "active" : ""}`} onClick={() => setTab("query")}>
-          Query{library.length ? ` (${library.length})` : ""}
-        </button>
-      </div>
+      <main className="wrap">
+        <motion.h1
+          className="title"
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 18 }}
+        >
+          Audio RAG <span className="spark">Auto-Editor</span>
+        </motion.h1>
+        <p className="subtitle">
+          Drop audio, ask a question, and get a written answer plus a seamless highlight reel
+          stitched from the most relevant moments — powered by Groq Whisper, Pinecone &amp; Gemini.
+        </p>
 
-      {tab === "upload" ? (
-        <Uploader library={library} onIndexed={onIndexed} />
-      ) : (
-        <QueryPanel library={library} onReingest={reingest} />
-      )}
+        <div className="tabs">
+          {(["upload", "query"] as const).map((t) => (
+            <motion.button
+              key={t}
+              className={`tab ${tab === t ? "active" : ""}`}
+              onClick={() => setTab(t)}
+              whileHover={{ scale: 1.05, rotate: -1 }}
+              whileTap={{ scale: 0.96 }}
+            >
+              {t === "upload" ? "Upload & Index" : `Query${library.length ? ` (${library.length})` : ""}`}
+            </motion.button>
+          ))}
+        </div>
 
-      <p className="muted" style={{ marginTop: 24 }}>
-        Tip: index your audio first, then switch to the Query tab. Pick which sources to search,
-        then ask. Audio is stitched locally in your browser, so nothing is re-uploaded to generate
-        the reel.
-      </p>
-    </main>
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ type: "spring", stiffness: 300, damping: 24 }}
+          >
+            {tab === "upload" ? (
+              <Uploader library={library} onIndexed={onIndexed} />
+            ) : (
+              <QueryPanel
+                library={library}
+                onReingest={reingest}
+                onMode={setBlobMode}
+                onAnalyser={setAnalyser}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
+
+        <p className="muted" style={{ marginTop: 24 }}>
+          Tip: index your audio first, then switch to the Query tab. Pick which sources to search,
+          then ask. Audio is stitched locally in your browser, so nothing is re-uploaded to make
+          the reel.
+        </p>
+      </main>
+    </>
   );
 }
