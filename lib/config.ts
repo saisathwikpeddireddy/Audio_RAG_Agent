@@ -17,7 +17,7 @@ export const config = {
 
   // "gemini" (default) or "groq" fallback for the editor LLM.
   editorProvider: (process.env.EDITOR_PROVIDER ?? "gemini").toLowerCase(),
-  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.0-flash",
+  geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
   groqLlmModel: process.env.GROQ_LLM_MODEL ?? "llama-3.3-70b-versatile",
 
   topK: parseInt(process.env.TOP_K ?? "5", 10),

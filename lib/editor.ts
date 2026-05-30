@@ -106,9 +106,20 @@ async function geminiEdit(query: string, hits: Hit[]): Promise<string> {
 
 export async function editClips(query: string, hits: Hit[]): Promise<Clip[]> {
   if (!hits.length) return [];
-  const raw =
-    config.editorProvider === "groq"
-      ? await groqChatJson(EDITOR_SYSTEM_PROMPT, compileContext(query, hits))
-      : await geminiEdit(query, hits);
+
+  let raw: string;
+  if (config.editorProvider === "groq") {
+    raw = await groqChatJson(EDITOR_SYSTEM_PROMPT, compileContext(query, hits));
+  } else {
+    try {
+      raw = await geminiEdit(query, hits);
+    } catch (err) {
+      // Gemini's free tier can be quota-limited or a model can be retired
+      // (e.g. a 429 with "limit: 0"). Fall back to Groq Llama when available
+      // so the editor step still succeeds.
+      if (!config.groqApiKey) throw err;
+      raw = await groqChatJson(EDITOR_SYSTEM_PROMPT, compileContext(query, hits));
+    }
+  }
   return extractClips(raw);
 }
