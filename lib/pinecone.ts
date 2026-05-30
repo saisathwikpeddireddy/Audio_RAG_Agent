@@ -93,7 +93,7 @@ export async function deleteFileVectors(fileId: string): Promise<number> {
   } while (paginationToken);
 
   for (let i = 0; i < ids.length; i += 1000) {
-    await ns.deleteMany(ids.slice(i, i + 1000));
+    await ns.deleteMany({ ids: ids.slice(i, i + 1000) });
   }
   return ids.length;
 }
