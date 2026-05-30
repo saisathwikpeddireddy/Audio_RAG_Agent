@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
+import type { LibraryFile } from "@/lib/types";
 
 type Status = "pending" | "uploading" | "ingesting" | "done" | "error";
 
@@ -11,7 +12,7 @@ interface Item {
   detail?: string;
 }
 
-export default function Uploader() {
+export default function Uploader({ onIndexed }: { onIndexed?: (entry: LibraryFile) => void }) {
   const [items, setItems] = useState<Item[]>([]);
   const [audioType, setAudioType] = useState("conversational");
   const [hover, setHover] = useState(false);
@@ -49,6 +50,7 @@ export default function Uploader() {
           status: "done",
           detail: `${data.parents} parents · ${data.children} sentences indexed`,
         });
+        if (data.entry && onIndexed) onIndexed(data.entry as LibraryFile);
       } catch (e) {
         setItem(file.name, { status: "error", detail: (e as Error).message });
       }

@@ -48,11 +48,18 @@ export async function upsertChildren(records: ChildRecord[], batchSize = 90) {
   }
 }
 
-export async function search(queryText: string, topK: number): Promise<Hit[]> {
+export async function search(queryText: string, topK: number, fileIds?: string[]): Promise<Hit[]> {
   const ns = await ensureIndex();
-  const res = await ns.searchRecords({
-    query: { topK, inputs: { text: queryText } },
-  });
+  const query: {
+    topK: number;
+    inputs: { text: string };
+    filter?: Record<string, unknown>;
+  } = { topK, inputs: { text: queryText } };
+  // Scope the search to a subset of files when the user selects sources.
+  if (fileIds && fileIds.length) {
+    query.filter = { file_id: { $in: fileIds } };
+  }
+  const res = await ns.searchRecords({ query });
 
   const hits = res.result?.hits ?? [];
   return hits.map((h: any) => {

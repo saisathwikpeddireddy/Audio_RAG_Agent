@@ -49,3 +49,16 @@ export interface ReelResult {
   answer: string;
   clips: Clip[];
 }
+
+// One indexed audio file, tracked in the Blob-stored library manifest so the
+// UI can list sources, scope queries to a subset, and show grounded example
+// questions.
+export interface LibraryFile {
+  file_id: string;
+  filename: string;
+  blob_url: string;
+  audio_type: string;
+  children: number;
+  indexed_at: string; // ISO timestamp
+  suggestions: string[];
+}

@@ -10,12 +10,16 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
-    const { query, topK } = (await request.json()) as { query: string; topK?: number };
+    const { query, topK, fileIds } = (await request.json()) as {
+      query: string;
+      topK?: number;
+      fileIds?: string[];
+    };
     if (!query?.trim()) {
       return NextResponse.json({ error: "query is required" }, { status: 400 });
     }
 
-    const hits = await search(query, topK ?? config.topK);
+    const hits = await search(query, topK ?? config.topK, fileIds);
     if (!hits.length) {
       return NextResponse.json({ hits: [], clips: [], note: "No matches. Upload & ingest audio first." });
     }

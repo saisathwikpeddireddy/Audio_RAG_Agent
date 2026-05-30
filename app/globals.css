@@ -177,6 +177,97 @@ button.primary:disabled {
   font-size: 13px;
 }
 
+.sources {
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+}
+
+.sources-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.source {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 4px;
+  font-size: 14px;
+  cursor: pointer;
+  border-top: 1px solid var(--border);
+}
+
+.source:first-of-type {
+  border-top: none;
+}
+
+.source input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}
+
+.source-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-meta {
+  flex: none;
+}
+
+button.link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+button.link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.chip {
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 20px;
+  padding: 7px 13px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.chip:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(110, 168, 254, 0.08);
+}
+
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .answer {
   margin-top: 16px;
   padding: 14px 16px;
