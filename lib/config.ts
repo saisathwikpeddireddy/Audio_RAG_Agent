@@ -21,9 +21,16 @@ export const config = {
   groqLlmModel: process.env.GROQ_LLM_MODEL ?? "llama-3.3-70b-versatile",
 
   topK: parseInt(process.env.TOP_K ?? "5", 10),
-  parentMaxSeconds: parseFloat(process.env.PARENT_MAX_SECONDS ?? "30"),
-  pauseThresholdSeconds: parseFloat(process.env.PAUSE_THRESHOLD_SECONDS ?? "0.7"),
+
+  // Parent windowing: grow toward the soft target, then commit at the next
+  // natural pause or sentence terminal; never exceed the hard max.
+  parentTargetSeconds: parseFloat(process.env.PARENT_TARGET_SECONDS ?? "30"),
+  parentMaxSeconds: parseFloat(process.env.PARENT_MAX_SECONDS ?? "45"),
+  pauseThresholdSeconds: parseFloat(process.env.PAUSE_THRESHOLD_SECONDS ?? "0.5"),
+
   crossfadeMs: parseInt(process.env.CROSSFADE_MS ?? "50", 10),
+  // Clips on the same file within this gap are fused into one continuous window.
+  fuseGapMs: parseInt(process.env.FUSE_GAP_MS ?? "750", 10),
 
   // The record field whose text Pinecone embeds for the integrated index.
   textField: "child_text",

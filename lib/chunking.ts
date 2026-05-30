@@ -18,6 +18,17 @@ function splitSentences(text: string): string[] {
     .filter(Boolean);
 }
 
+// True when `text` ends on a sentence-terminal token (allowing trailing quotes
+// or brackets), i.e. a safe place to cut without slicing a thought in half.
+function endsSentence(text: string): boolean {
+  return /[.!?]["'”’)\]]*\s*$/.test(text);
+}
+
+// Silence-/token-bound parent windows. We accumulate sentences and only commit
+// a boundary once the window has reached the soft target AND we hit a natural
+// pause (gap > threshold) or a sentence terminal — so a parent is dynamically
+// sized (~target..max seconds) but never cut mid-word or mid-thought. A hard
+// max guards against runaway windows when neither signal appears.
 export function buildParents(segments: Segment[]): Parent[] {
   const parents: Parent[] = [];
   let current: Parent | null = null;
@@ -32,8 +43,12 @@ export function buildParents(segments: Segment[]): Parent[] {
     }
 
     const gap = seg.start - current.end;
-    const duration = seg.end - current.start;
-    if (gap > config.pauseThresholdSeconds || duration > config.parentMaxSeconds) {
+    const duration = current.end - current.start;
+    const reachedTarget = duration >= config.parentTargetSeconds;
+    const naturalBoundary = gap > config.pauseThresholdSeconds || endsSentence(current.text);
+    const hardCap = duration >= config.parentMaxSeconds;
+
+    if ((reachedTarget && naturalBoundary) || hardCap) {
       parents.push(current);
       current = { start: seg.start, end: seg.end, text };
     } else {

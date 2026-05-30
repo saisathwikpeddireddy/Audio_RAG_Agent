@@ -236,7 +236,9 @@ export default function QueryPanel({
 
       {clips.length > 0 && (
         <div style={{ marginTop: 18 }}>
-          <div className="muted">Editor selected {clips.length} clip(s):</div>
+          <div className="muted">
+            Stitched into {clips.length} continuous segment(s) from these moments:
+          </div>
           {hits.length > 0 &&
             hits.map((h, i) => (
               <div className="hit" key={h._id ?? i}>

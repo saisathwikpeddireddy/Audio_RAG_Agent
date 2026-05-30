@@ -59,10 +59,19 @@ your files.
 
 ### Chunking strategy
 **Dynamic-window Parent-Child RAG.** Whisper segments are grouped into *parent*
-windows (broken at natural pauses or every ~30s). Each parent is split into
-*child* sentences. Only the children are embedded for precise semantic matching,
-but every child stores its **parent's** wide time window, so retrieval splices a
-complete thought instead of a clipped fragment.
+windows that grow toward a ~30s target and commit only at a **natural pause**
+(timestamp gap > 0.5s) or a **sentence terminal** — with a 45s hard cap — so a
+parent is dynamically sized but never sliced mid-word or mid-thought. Each
+parent is split into *child* sentences; only the children are embedded for
+precise semantic matching, but every child stores its **parent's** wide time
+window, so retrieval splices a complete thought instead of a clipped fragment.
+
+### Adjacent-clip fusion
+After the editor picks clip boundaries, the retriever **fuses** clips on the
+same file whose windows overlap or sit within ~0.75s of each other into one
+continuous segment. This drops duplicate parent windows and heals tiny gaps, so
+the highlight reel plays as an uninterrupted stream rather than crossfading a
+seam mid-thought.
 
 ---
 
