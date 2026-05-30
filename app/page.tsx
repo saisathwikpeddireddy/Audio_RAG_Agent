@@ -52,6 +52,23 @@ export default function Home() {
     setLibrary((prev) => [...prev.filter((f) => f.file_id !== entry.file_id), entry]);
   }, []);
 
+  const deleteFile = useCallback(async (fileId: string) => {
+    // Optimistically drop it so the card animates out immediately.
+    setLibrary((prev) => prev.filter((f) => f.file_id !== fileId));
+    try {
+      const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`, { method: "DELETE" });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && Array.isArray(data.library)) {
+        setLibrary(data.library);
+      } else {
+        // Deletion failed — re-sync so the file reappears rather than lying.
+        refresh();
+      }
+    } catch {
+      refresh();
+    }
+  }, []);
+
   const reingest = useCallback(
     async (file: LibraryFile) => {
       onIndexed({ ...file, status: "processing", error: undefined });
@@ -122,6 +139,7 @@ export default function Home() {
                 onReingest={reingest}
                 onMode={setBlobMode}
                 onAnalyser={setAnalyser}
+                onDelete={deleteFile}
               />
             )}
           </motion.div>

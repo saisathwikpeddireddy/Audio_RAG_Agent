@@ -35,3 +35,16 @@ export async function saveLibraryEntry(entry: LibraryFile): Promise<LibraryFile[
   });
   return next;
 }
+
+// Remove a file from the manifest by id. Returns the updated list.
+export async function removeLibraryEntry(fileId: string): Promise<LibraryFile[]> {
+  const current = await getLibrary();
+  const next = current.filter((f) => f.file_id !== fileId);
+  await put(MANIFEST_PATH, JSON.stringify(next), {
+    access: "public",
+    contentType: "application/json",
+    addRandomSuffix: false,
+    cacheControlMaxAge: 0,
+  });
+  return next;
+}

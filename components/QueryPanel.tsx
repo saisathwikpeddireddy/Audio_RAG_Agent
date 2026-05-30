@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
+import HoldToDelete from "@/components/HoldToDelete";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 import type { BlobMode } from "@/components/ReactiveBlob";
 
@@ -17,11 +18,13 @@ export default function QueryPanel({
   onReingest,
   onMode,
   onAnalyser,
+  onDelete,
 }: {
   library: LibraryFile[];
   onReingest?: (file: LibraryFile) => void;
   onMode?: (m: BlobMode) => void;
   onAnalyser?: (a: AnalyserNode | null) => void;
+  onDelete?: (fileId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -190,47 +193,60 @@ export default function QueryPanel({
               </button>
             </div>
           </div>
-          {library.map((f) => {
-            const ready = f.status === "ready";
-            return (
-              <label className={`source ${ready ? "" : "source-disabled"}`} key={f.file_id}>
-                <input
-                  type="checkbox"
-                  checked={ready && selected.includes(f.file_id)}
-                  onChange={() => ready && toggle(f.file_id)}
-                  disabled={busy || !ready}
-                />
-                <span className="source-name" title={f.filename}>
-                  {prettyName(f.filename)}
-                </span>
-                {f.status === "ready" && (
-                  <span className="muted source-meta">
-                    {f.children} chunks · {f.audio_type}
+          <AnimatePresence initial={false}>
+            {library.map((f) => {
+              const ready = f.status === "ready";
+              return (
+                <motion.label
+                  className={`source ${ready ? "" : "source-disabled"}`}
+                  key={f.file_id}
+                  layout
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0, scale: 0.6, x: 30 }}
+                  transition={{ type: "spring", stiffness: 320, damping: 26 }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={ready && selected.includes(f.file_id)}
+                    onChange={() => ready && toggle(f.file_id)}
+                    disabled={busy || !ready}
+                  />
+                  <span className="source-name" title={f.filename}>
+                    {prettyName(f.filename)}
                   </span>
-                )}
-                {f.status === "processing" && <span className="tag tag-proc">⏳ indexing</span>}
-                {f.status === "failed" && (
-                  <span className="row" style={{ gap: 8 }}>
-                    <span className="tag tag-fail" title={f.error}>
-                      ⚠ failed
+                  {f.status === "ready" && (
+                    <span className="muted source-meta">
+                      {f.children} chunks · {f.audio_type}
                     </span>
-                    {onReingest && (
-                      <button
-                        className="link"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onReingest(f);
-                        }}
-                        disabled={busy}
-                      >
-                        Retry
-                      </button>
-                    )}
-                  </span>
-                )}
-              </label>
-            );
-          })}
+                  )}
+                  {f.status === "processing" && <span className="tag tag-proc">⏳ indexing</span>}
+                  {f.status === "failed" && (
+                    <>
+                      <span className="tag tag-fail" title={f.error}>
+                        ⚠ failed
+                      </span>
+                      {onReingest && (
+                        <button
+                          className="link"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onReingest(f);
+                          }}
+                          disabled={busy}
+                        >
+                          Retry
+                        </button>
+                      )}
+                    </>
+                  )}
+                  {onDelete && (
+                    <HoldToDelete onConfirm={() => onDelete(f.file_id)} disabled={busy} />
+                  )}
+                </motion.label>
+              );
+            })}
+          </AnimatePresence>
         </div>
       )}
 

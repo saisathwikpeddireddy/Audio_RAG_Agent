@@ -448,6 +448,45 @@ button.link:disabled {
   color: #fff;
 }
 
+/* ---- Hold-to-delete ---- */
+.hold-del {
+  position: relative;
+  overflow: hidden;
+  flex: none;
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  background: #fff5f5;
+  color: #7f1d1d;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 11px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  user-select: none;
+  text-transform: lowercase;
+  touch-action: none;
+}
+
+.hold-del:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.hold-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, rgba(248, 113, 113, 0.75), rgba(220, 38, 38, 0.85));
+  z-index: 0;
+}
+
+.hold-label {
+  position: relative;
+  z-index: 1;
+}
+
 /* ---- Chips ---- */
 .chips {
   display: flex;

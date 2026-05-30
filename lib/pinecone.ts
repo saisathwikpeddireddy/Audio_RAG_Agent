@@ -76,3 +76,24 @@ export async function search(queryText: string, topK: number, fileIds?: string[]
     } as Hit;
   });
 }
+
+// Delete every child vector for a file. Serverless/Starter indexes don't support
+// delete-by-metadata-filter, so we list IDs by their deterministic prefix
+// (`${fileId}-p{n}-c{m}`) and delete by ID in batches. Returns the count removed.
+export async function deleteFileVectors(fileId: string): Promise<number> {
+  const ns = await ensureIndex();
+  const prefix = `${fileId}-`;
+
+  const ids: string[] = [];
+  let paginationToken: string | undefined;
+  do {
+    const res: any = await ns.listPaginated({ prefix, paginationToken });
+    for (const v of res.vectors ?? []) if (v?.id) ids.push(v.id);
+    paginationToken = res.pagination?.next;
+  } while (paginationToken);
+
+  for (let i = 0; i < ids.length; i += 1000) {
+    await ns.deleteMany(ids.slice(i, i + 1000));
+  }
+  return ids.length;
+}
