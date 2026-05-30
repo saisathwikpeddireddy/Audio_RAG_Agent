@@ -1,5 +1,15 @@
 # Secrets
 .env
+.env.local
+.env*.local
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+.vercel
+*.tsbuildinfo
+next-env.d.ts.timestamp
 
 # Python
 __pycache__/

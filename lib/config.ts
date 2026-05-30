@@ -1,9 +1,11 @@
 // Central config, read from environment variables (set in Vercel project settings).
 
 export const config = {
-  groqApiKey: process.env.GROQ_API_KEY ?? "",
-  pineconeApiKey: process.env.PINECONE_API_KEY ?? "",
-  geminiApiKey: process.env.GEMINI_API_KEY ?? "",
+  // Accept the canonical *_API_KEY names, but fall back to the short
+  // GROQ / PINECONE / GEMINI names in case they were set that way in Vercel.
+  groqApiKey: process.env.GROQ_API_KEY ?? process.env.GROQ ?? "",
+  pineconeApiKey: process.env.PINECONE_API_KEY ?? process.env.PINECONE ?? "",
+  geminiApiKey: process.env.GEMINI_API_KEY ?? process.env.GEMINI ?? "",
 
   pineconeIndex: process.env.PINECONE_INDEX_NAME ?? "audio-rag",
   pineconeNamespace: process.env.PINECONE_NAMESPACE ?? "default",
