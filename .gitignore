@@ -1,0 +1,18 @@
+# Secrets
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Audio I/O
+data/input/*.mp3
+data/output/
+*.mp3
+!data/input/.gitkeep
+
+# OS
+.DS_Store
