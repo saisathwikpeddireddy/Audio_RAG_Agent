@@ -225,6 +225,29 @@ button.primary:disabled {
   flex: none;
 }
 
+.source-disabled {
+  opacity: 0.7;
+}
+
+.tag {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.tag-proc {
+  background: rgba(110, 168, 254, 0.15);
+  color: var(--accent);
+}
+
+.tag-fail {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--bad);
+}
+
 button.link {
   background: none;
   border: none;

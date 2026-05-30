@@ -1,61 +1,90 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { upload } from "@vercel/blob/client";
 import type { LibraryFile } from "@/lib/types";
 
-type Status = "pending" | "uploading" | "ingesting" | "done" | "error";
+// Local-only states before the file is handed off to background indexing.
+type LocalStatus = "uploading" | "queued" | "error";
 
 interface Item {
   name: string;
-  status: Status;
+  fileId?: string; // set once /api/ingest accepts the job
+  local: LocalStatus;
   detail?: string;
 }
 
-export default function Uploader({ onIndexed }: { onIndexed?: (entry: LibraryFile) => void }) {
+export default function Uploader({
+  library,
+  onIndexed,
+}: {
+  library: LibraryFile[];
+  onIndexed?: (entry: LibraryFile) => void;
+}) {
   const [items, setItems] = useState<Item[]>([]);
   const [audioType, setAudioType] = useState("conversational");
   const [hover, setHover] = useState(false);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  function setItem(name: string, patch: Partial<Item>) {
-    setItems((prev) => prev.map((it) => (it.name === name ? { ...it, ...patch } : it)));
+  const libById = useMemo(() => {
+    const m = new Map<string, LibraryFile>();
+    for (const f of library) m.set(f.file_id, f);
+    return m;
+  }, [library]);
+
+  function patch(name: string, p: Partial<Item>) {
+    setItems((prev) => prev.map((it) => (it.name === name ? { ...it, ...p } : it)));
   }
 
   async function processFiles(files: FileList | File[]) {
     const list = Array.from(files).filter((f) => f.type.startsWith("audio") || f.name.endsWith(".mp3"));
     if (!list.length) return;
     setBusy(true);
-    setItems((prev) => [...prev, ...list.map((f) => ({ name: f.name, status: "pending" as Status }))]);
+    setItems((prev) => [...prev, ...list.map((f) => ({ name: f.name, local: "uploading" as LocalStatus }))]);
 
     for (const file of list) {
       try {
-        setItem(file.name, { status: "uploading" });
+        patch(file.name, { local: "uploading" });
         const blob = await upload(file.name, file, {
           access: "public",
           handleUploadUrl: "/api/upload",
         });
 
-        setItem(file.name, { status: "ingesting" });
+        // Hand off to background indexing; the endpoint returns 202 immediately.
         const res = await fetch("/api/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url: blob.url, filename: file.name, audioType }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Ingest failed");
+        if (!res.ok && res.status !== 202) throw new Error(data.error || "Ingest failed to start");
 
-        setItem(file.name, {
-          status: "done",
-          detail: `${data.parents} parents · ${data.children} sentences indexed`,
-        });
-        if (data.entry && onIndexed) onIndexed(data.entry as LibraryFile);
+        const entry = data.entry as LibraryFile | undefined;
+        if (entry) {
+          patch(file.name, { fileId: entry.file_id, local: "queued" });
+          onIndexed?.(entry); // shows up as "processing"; page polling tracks it
+        }
       } catch (e) {
-        setItem(file.name, { status: "error", detail: (e as Error).message });
+        patch(file.name, { local: "error", detail: (e as Error).message });
       }
     }
     setBusy(false);
+  }
+
+  // Resolve what to show for an item: live library status wins once indexing
+  // has been handed off; otherwise the local upload state.
+  function view(it: Item): { badge: string; cls: string; detail?: string } {
+    const lib = it.fileId ? libById.get(it.fileId) : undefined;
+    if (lib) {
+      if (lib.status === "ready")
+        return { badge: "indexed", cls: "done", detail: `${lib.children} sentences indexed` };
+      if (lib.status === "failed") return { badge: "failed", cls: "error", detail: lib.error };
+      return { badge: "indexing", cls: "working", detail: "transcribing & embedding…" };
+    }
+    if (it.local === "uploading") return { badge: "uploading", cls: "working" };
+    if (it.local === "queued") return { badge: "queued", cls: "working" };
+    return { badge: "error", cls: "error", detail: it.detail };
   }
 
   return (
@@ -88,13 +117,13 @@ export default function Uploader({ onIndexed }: { onIndexed?: (entry: LibraryFil
         {busy ? (
           <span>
             <span className="spin" />
-            Processing…
+            Uploading…
           </span>
         ) : (
           <>
             <div style={{ fontSize: 15, color: "var(--text)" }}>Drop MP3 files here, or click to browse</div>
             <div className="muted" style={{ marginTop: 6 }}>
-              Transcribed by Groq Whisper, indexed in Pinecone
+              Transcribed by Groq Whisper, indexed in Pinecone — indexing runs in the background.
             </div>
           </>
         )}
@@ -109,21 +138,18 @@ export default function Uploader({ onIndexed }: { onIndexed?: (entry: LibraryFil
         onChange={(e) => e.target.files && processFiles(e.target.files)}
       />
 
-      {items.map((it) => (
-        <div className="file" key={it.name}>
-          <div>
-            <div>{it.name}</div>
-            {it.detail && <div className="muted">{it.detail}</div>}
+      {items.map((it) => {
+        const v = view(it);
+        return (
+          <div className="file" key={it.name}>
+            <div>
+              <div>{it.name}</div>
+              {v.detail && <div className="muted">{v.detail}</div>}
+            </div>
+            <span className={`badge ${v.cls}`}>{v.badge}</span>
           </div>
-          <span
-            className={`badge ${
-              it.status === "done" ? "done" : it.status === "error" ? "error" : it.status === "pending" ? "pending" : "working"
-            }`}
-          >
-            {it.status}
-          </span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

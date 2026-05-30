@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Uploader from "@/components/Uploader";
 import QueryPanel from "@/components/QueryPanel";
 import type { LibraryFile } from "@/lib/types";
@@ -8,20 +8,67 @@ import type { LibraryFile } from "@/lib/types";
 export default function Home() {
   const [tab, setTab] = useState<"upload" | "query">("upload");
   const [library, setLibrary] = useState<LibraryFile[]>([]);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  async function refresh() {
+    try {
+      const d = await fetch("/api/files").then((r) => r.json());
+      if (Array.isArray(d.library)) setLibrary(d.library);
+    } catch {
+      // ignore transient fetch errors; the next poll will retry
+    }
+  }
 
   // Load previously-indexed files once on mount.
   useEffect(() => {
-    fetch("/api/files")
-      .then((r) => r.json())
-      .then((d) => setLibrary(Array.isArray(d.library) ? d.library : []))
-      .catch(() => {});
+    refresh();
   }, []);
 
-  // Called by the Uploader after each successful ingest — upsert by file_id so
-  // both tabs stay in sync without a round-trip to Blob.
-  function onIndexed(entry: LibraryFile) {
+  // Poll while any file is still processing, so status flips to ready/failed
+  // without a manual refresh.
+  const processing = library.some((f) => f.status === "processing");
+  useEffect(() => {
+    if (processing && !pollRef.current) {
+      pollRef.current = setInterval(refresh, 2500);
+    } else if (!processing && pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, [processing]);
+
+  // Upsert by file_id so both tabs reflect a file the moment it's enqueued.
+  const onIndexed = useCallback((entry: LibraryFile) => {
     setLibrary((prev) => [...prev.filter((f) => f.file_id !== entry.file_id), entry]);
-  }
+  }, []);
+
+  // Re-run ingestion for a failed (or stuck) file — idempotent on the vectors.
+  const reingest = useCallback(
+    async (file: LibraryFile) => {
+      onIndexed({ ...file, status: "processing", error: undefined });
+      try {
+        const res = await fetch("/api/ingest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            url: file.blob_url,
+            filename: file.filename,
+            audioType: file.audio_type,
+          }),
+        });
+        const data = await res.json();
+        if (data.entry) onIndexed(data.entry as LibraryFile);
+      } catch {
+        onIndexed({ ...file, status: "failed", error: "Could not start re-indexing." });
+      }
+    },
+    [onIndexed]
+  );
 
   return (
     <main className="wrap">
@@ -41,9 +88,9 @@ export default function Home() {
       </div>
 
       {tab === "upload" ? (
-        <Uploader onIndexed={onIndexed} />
+        <Uploader library={library} onIndexed={onIndexed} />
       ) : (
-        <QueryPanel library={library} />
+        <QueryPanel library={library} onReingest={reingest} />
       )}
 
       <p className="muted" style={{ marginTop: 24 }}>

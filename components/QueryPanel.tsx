@@ -8,7 +8,13 @@ function prettyName(filename: string): string {
   return filename.replace(/\.[^.]+$/, "");
 }
 
-export default function QueryPanel({ library }: { library: LibraryFile[] }) {
+export default function QueryPanel({
+  library,
+  onReingest,
+}: {
+  library: LibraryFile[];
+  onReingest?: (file: LibraryFile) => void;
+}) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [stage, setStage] = useState("");
@@ -19,25 +25,27 @@ export default function QueryPanel({ library }: { library: LibraryFile[] }) {
   const [audioUrl, setAudioUrl] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
 
-  // Keep selection in sync with the library: newly indexed files are selected
-  // by default, removed files drop out.
+  const readyCount = useMemo(() => library.filter((f) => f.status === "ready").length, [library]);
+
+  // Only "ready" files are selectable; newly-ready files join the selection,
+  // processing/failed files drop out.
   useEffect(() => {
     setSelected((prev) => {
-      const ids = library.map((f) => f.file_id);
-      const kept = prev.filter((id) => ids.includes(id));
+      const readyIds = library.filter((f) => f.status === "ready").map((f) => f.file_id);
+      const kept = prev.filter((id) => readyIds.includes(id));
       const known = new Set(kept);
-      const additions = ids.filter((id) => !known.has(id));
+      const additions = readyIds.filter((id) => !known.has(id));
       return [...kept, ...additions];
     });
   }, [library]);
 
-  // Example questions = grounded suggestions from the selected sources.
+  // Example questions = grounded suggestions from the selected (ready) sources.
   const chips = useMemo(() => {
     const sel = new Set(selected);
     const seen = new Set<string>();
     const out: string[] = [];
     for (const f of library) {
-      if (!sel.has(f.file_id)) continue;
+      if (f.status !== "ready" || !sel.has(f.file_id)) continue;
       for (const q of f.suggestions ?? []) {
         const key = q.toLowerCase();
         if (!seen.has(key)) {
@@ -54,13 +62,17 @@ export default function QueryPanel({ library }: { library: LibraryFile[] }) {
       prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
     );
   }
-  const selectAll = () => setSelected(library.map((f) => f.file_id));
+  const selectAll = () => setSelected(library.filter((f) => f.status === "ready").map((f) => f.file_id));
   const selectNone = () => setSelected([]);
 
   async function run(override?: string) {
     const q = (override ?? query).trim();
     if (!q || busy) return;
-    if (library.length > 0 && selected.length === 0) {
+    if (readyCount === 0) {
+      setError("No sources are ready to search yet — index audio in the Upload tab first.");
+      return;
+    }
+    if (selected.length === 0) {
       setError("Select at least one source to search.");
       return;
     }
@@ -89,7 +101,6 @@ export default function QueryPanel({ library }: { library: LibraryFile[] }) {
       if (data.note) throw new Error(data.note);
 
       if (!data.clips?.length) {
-        // We may still have a text answer even when no clips were selected.
         setStage("");
         if (!data.answer) throw new Error("The editor found no usable clips for this query.");
         return;
@@ -120,10 +131,10 @@ export default function QueryPanel({ library }: { library: LibraryFile[] }) {
         <div className="sources">
           <div className="sources-head">
             <span className="muted">
-              Sources ({selected.length}/{library.length})
+              Sources ({selected.length}/{readyCount} ready)
             </span>
             <div className="row" style={{ gap: 12 }}>
-              <button className="link" onClick={selectAll} disabled={busy}>
+              <button className="link" onClick={selectAll} disabled={busy || readyCount === 0}>
                 Select all
               </button>
               <button className="link" onClick={selectNone} disabled={busy}>
@@ -131,22 +142,47 @@ export default function QueryPanel({ library }: { library: LibraryFile[] }) {
               </button>
             </div>
           </div>
-          {library.map((f) => (
-            <label className="source" key={f.file_id}>
-              <input
-                type="checkbox"
-                checked={selected.includes(f.file_id)}
-                onChange={() => toggle(f.file_id)}
-                disabled={busy}
-              />
-              <span className="source-name" title={f.filename}>
-                {prettyName(f.filename)}
-              </span>
-              <span className="muted source-meta">
-                {f.children} chunks · {f.audio_type}
-              </span>
-            </label>
-          ))}
+          {library.map((f) => {
+            const ready = f.status === "ready";
+            return (
+              <label className={`source ${ready ? "" : "source-disabled"}`} key={f.file_id}>
+                <input
+                  type="checkbox"
+                  checked={ready && selected.includes(f.file_id)}
+                  onChange={() => ready && toggle(f.file_id)}
+                  disabled={busy || !ready}
+                />
+                <span className="source-name" title={f.filename}>
+                  {prettyName(f.filename)}
+                </span>
+                {f.status === "ready" && (
+                  <span className="muted source-meta">
+                    {f.children} chunks · {f.audio_type}
+                  </span>
+                )}
+                {f.status === "processing" && <span className="tag tag-proc">⏳ indexing</span>}
+                {f.status === "failed" && (
+                  <span className="row" style={{ gap: 8 }}>
+                    <span className="tag tag-fail" title={f.error}>
+                      ⚠ failed
+                    </span>
+                    {onReingest && (
+                      <button
+                        className="link"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          onReingest(f);
+                        }}
+                        disabled={busy}
+                      >
+                        Retry
+                      </button>
+                    )}
+                  </span>
+                )}
+              </label>
+            );
+          })}
         </div>
       )}
 

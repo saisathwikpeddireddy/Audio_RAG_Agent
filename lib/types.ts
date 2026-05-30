@@ -52,7 +52,9 @@ export interface ReelResult {
 
 // One indexed audio file, tracked in the Blob-stored library manifest so the
 // UI can list sources, scope queries to a subset, and show grounded example
-// questions.
+// questions. Ingestion runs in the background, so each file carries a status.
+export type FileStatus = "processing" | "ready" | "failed";
+
 export interface LibraryFile {
   file_id: string;
   filename: string;
@@ -61,4 +63,6 @@ export interface LibraryFile {
   children: number;
   indexed_at: string; // ISO timestamp
   suggestions: string[];
+  status: FileStatus;
+  error?: string;
 }

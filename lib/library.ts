@@ -31,7 +31,7 @@ export async function saveLibraryEntry(entry: LibraryFile): Promise<LibraryFile[
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
-    cacheControlMaxAge: 60, // keep cross-session staleness short
+    cacheControlMaxAge: 0, // status changes must be visible to pollers immediately
   });
   return next;
 }
