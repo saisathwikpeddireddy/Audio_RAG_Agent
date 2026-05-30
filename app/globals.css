@@ -1,5 +1,5 @@
 :root {
-  --bg: #faf7f2;
+  --bg: #faf6e9; /* warm low-fatigue cream; electric yellow stays on accents only */
   --surface: #ffffff;
   --ink: #141414;
   --muted: #6b6b6b;
@@ -118,6 +118,21 @@ body {
   padding: 22px;
   margin-bottom: 18px;
   box-shadow: var(--shadow);
+}
+
+/* Box-shadow ripples outward while a query is running. */
+.card.pulsing {
+  animation: card-ripple 1.1s ease-in-out infinite;
+}
+
+@keyframes card-ripple {
+  0%,
+  100% {
+    box-shadow: var(--shadow);
+  }
+  50% {
+    box-shadow: 7px 7px 0 var(--cyan), 9px 9px 0 var(--ink);
+  }
 }
 
 strong {
@@ -275,6 +290,36 @@ button.primary:disabled {
   color: var(--muted);
   font-size: 11px;
   margin-top: 2px;
+}
+
+/* Kinetic "active worker" state: animated candy-stripe + micro-wobble. */
+.cassette.proc {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(6, 182, 212, 0.16) 0 12px,
+    rgba(255, 255, 255, 0) 12px 24px
+  );
+  background-size: 34px 34px;
+  animation: stripes 0.65s linear infinite, wobble 1.8s ease-in-out infinite;
+}
+
+@keyframes stripes {
+  to {
+    background-position: 34px 0;
+  }
+}
+
+@keyframes wobble {
+  0%,
+  100% {
+    transform: rotate(0deg);
+  }
+  25% {
+    transform: rotate(-0.5deg);
+  }
+  75% {
+    transform: rotate(0.5deg);
+  }
 }
 
 /* ---- Badges ---- */
@@ -481,6 +526,29 @@ button.link:disabled {
   font-size: 15px;
   line-height: 1.6;
   color: var(--ink);
+  /* Keep long answers from blowing out the layout; scroll inside instead. */
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+/* Chunky brutalist scrollbar to match the aesthetic. */
+.answer p::-webkit-scrollbar {
+  width: 12px;
+}
+.answer p::-webkit-scrollbar-track {
+  background: var(--bg);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+}
+.answer p::-webkit-scrollbar-thumb {
+  background: var(--pink);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+}
+.answer p {
+  scrollbar-width: thin;
+  scrollbar-color: var(--pink) var(--bg);
 }
 
 /* ---- Audio ---- */
@@ -516,11 +584,29 @@ a.dl {
 }
 
 .block {
+  position: relative;
   height: 42px;
   border: var(--border);
   border-radius: 8px;
   min-width: 26px;
   box-shadow: var(--shadow-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* "FUSED JOIN" badge on a block that merged multiple retrieved clips. */
+.fused-badge {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink);
+  background: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  padding: 1px 6px;
+  white-space: nowrap;
+  box-shadow: 1px 1px 0 var(--ink);
 }
 
 .playhead {

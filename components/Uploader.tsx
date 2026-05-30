@@ -142,7 +142,7 @@ export default function Uploader({
           const v = view(it);
           return (
             <motion.div
-              className="cassette"
+              className={`cassette ${v.working ? "proc" : ""}`}
               key={it.name}
               layout
               initial={{ opacity: 0, scale: 0.85, y: -10 }}

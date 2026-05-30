@@ -20,15 +20,16 @@ export function fuseClips(clips: Clip[], gapMs = 750): Clip[] {
   const out: Clip[] = [];
   for (const list of byFile.values()) {
     list.sort((a, b) => a.start_time_ms - b.start_time_ms);
-    let cur: Clip = { ...list[0] };
+    let cur: Clip = { ...list[0], parts: 1 };
     for (let i = 1; i < list.length; i++) {
       const next = list[i];
       // Overlapping or within the gap → extend the current window.
       if (next.start_time_ms <= cur.end_time_ms + gapMs) {
         cur.end_time_ms = Math.max(cur.end_time_ms, next.end_time_ms);
+        cur.parts = (cur.parts ?? 1) + 1;
       } else {
         out.push(cur);
-        cur = { ...next };
+        cur = { ...next, parts: 1 };
       }
     }
     out.push(cur);

@@ -168,7 +168,7 @@ export default function QueryPanel({
   }
 
   return (
-    <div className="card">
+    <div className={`card ${busy ? "pulsing" : ""}`}>
       <strong>2 · Ask for a highlight reel</strong>
 
       {library.length === 0 ? (
@@ -329,7 +329,14 @@ export default function QueryPanel({
                 initial={{ scale: 0.4, y: -16, opacity: 0 }}
                 animate={{ scale: 1, y: 0, opacity: 1 }}
                 transition={{ type: "spring", stiffness: 320, damping: 14, delay: i * 0.07 }}
-              />
+                title={
+                  (c.parts ?? 1) > 1
+                    ? `Fused from ${c.parts} retrieved clips`
+                    : `${c.start_time_ms}–${c.end_time_ms}ms`
+                }
+              >
+                {(c.parts ?? 1) > 1 && <span className="fused-badge">🔗 {c.parts}</span>}
+              </motion.div>
             ))}
             {audioUrl && (
               <div className="playhead" style={{ left: `${Math.min(1, progress) * 100}%` }} />

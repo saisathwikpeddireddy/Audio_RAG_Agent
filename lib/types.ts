@@ -36,11 +36,13 @@ export interface Hit {
   audio_type?: string;
 }
 
-// What the editor LLM returns / what the browser stitches.
+// What the editor LLM returns / what the browser stitches. `parts` records how
+// many retrieved clips were fused into this segment (1 = no fusion).
 export interface Clip {
   file_path: string;
   start_time_ms: number;
   end_time_ms: number;
+  parts?: number;
 }
 
 // The editor's combined output: a grounded text answer plus the clips that
