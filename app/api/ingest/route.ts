@@ -60,8 +60,15 @@ async function runIngestion(base: LibraryFile) {
       "Indexing took too long — try a shorter clip, or split the file."
     );
     await saveLibraryEntry({ ...base, status: "ready", children, suggestions, error: undefined });
+    console.log(`[ingest] ready: ${base.filename} (${children} children)`);
   } catch (error) {
-    await saveLibraryEntry({ ...base, status: "failed", error: (error as Error).message });
+    const message = (error as Error).message || "Ingestion failed";
+    console.error(`[ingest] failed: ${base.filename} — ${message}`);
+    try {
+      await saveLibraryEntry({ ...base, status: "failed", error: message });
+    } catch (e) {
+      console.error(`[ingest] could not persist failed status: ${(e as Error).message}`);
+    }
   }
 }
 

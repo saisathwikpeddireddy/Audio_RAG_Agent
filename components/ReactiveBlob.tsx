@@ -96,7 +96,7 @@ export default function ReactiveBlob({
       <Canvas
         dpr={[1, 1.5]}
         gl={{ alpha: true, antialias: true }}
-        camera={{ position: [0, 0, 4.2], fov: 45 }}
+        camera={{ position: [0, 0, 7], fov: 45 }}
       >
         <ambientLight intensity={0.85} />
         <directionalLight position={[3, 4, 3]} intensity={1.3} />

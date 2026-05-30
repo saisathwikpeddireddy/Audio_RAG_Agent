@@ -5,6 +5,9 @@ import { NextResponse } from "next/server";
 import { getLibrary } from "@/lib/library";
 
 export const runtime = "nodejs";
+// Must never be statically cached — the client polls this for live status.
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET() {
   try {
