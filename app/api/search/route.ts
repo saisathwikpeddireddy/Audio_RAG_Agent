@@ -2,7 +2,7 @@
 
 import { NextResponse } from "next/server";
 import { search } from "@/lib/pinecone";
-import { editClips } from "@/lib/editor";
+import { generateReel } from "@/lib/editor";
 import { config } from "@/lib/config";
 
 export const runtime = "nodejs";
@@ -20,8 +20,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ hits: [], clips: [], note: "No matches. Upload & ingest audio first." });
     }
 
-    const clips = await editClips(query, hits);
-    return NextResponse.json({ hits, clips });
+    const { answer, clips } = await generateReel(query, hits);
+    return NextResponse.json({ hits, clips, answer });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }

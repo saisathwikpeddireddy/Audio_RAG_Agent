@@ -11,6 +11,7 @@ export default function QueryPanel() {
   const [error, setError] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
   const [clips, setClips] = useState<Clip[]>([]);
+  const [answer, setAnswer] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
 
   async function run() {
@@ -19,6 +20,7 @@ export default function QueryPanel() {
     setError("");
     setHits([]);
     setClips([]);
+    setAnswer("");
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl("");
 
@@ -34,8 +36,15 @@ export default function QueryPanel() {
 
       setHits(data.hits ?? []);
       setClips(data.clips ?? []);
+      setAnswer(data.answer ?? "");
       if (data.note) throw new Error(data.note);
-      if (!data.clips?.length) throw new Error("The editor found no usable clips for this query.");
+
+      if (!data.clips?.length) {
+        // We may still have a text answer even when no clips were selected.
+        setStage("");
+        if (!data.answer) throw new Error("The editor found no usable clips for this query.");
+        return;
+      }
 
       setStage("Stitching audio in your browser…");
       const { buffer } = await stitchClips(data.clips, 50);
@@ -73,6 +82,13 @@ export default function QueryPanel() {
         </div>
       )}
       {error && <div className="err">{error}</div>}
+
+      {answer && (
+        <div className="answer">
+          <div className="answer-label">Answer</div>
+          <p>{answer}</p>
+        </div>
+      )}
 
       {audioUrl && (
         <div style={{ marginTop: 16 }}>

@@ -42,3 +42,10 @@ export interface Clip {
   start_time_ms: number;
   end_time_ms: number;
 }
+
+// The editor's combined output: a grounded text answer plus the clips that
+// back it up.
+export interface ReelResult {
+  answer: string;
+  clips: Clip[];
+}

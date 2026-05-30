@@ -3,27 +3,35 @@
 
 import { config } from "./config";
 import { groqChatJson } from "./groq";
-import type { Hit, Clip } from "./types";
+import type { Hit, Clip, ReelResult } from "./types";
 
-export const EDITOR_SYSTEM_PROMPT = `You are an expert Audio Editor. You are given a user query and several transcript chunks retrieved from various audio files. Each chunk includes the text, file path, and millisecond timestamps.
+export const EDITOR_SYSTEM_PROMPT = `You are an expert Audio Editor and research assistant. You are given a user query and several transcript chunks retrieved from various audio files. Each chunk includes the text, file path, and millisecond timestamps.
 
-Your task is to create a logical "highlight reel" that answers the user's query by stringing these clips together.
+You have two jobs:
 
-RULES:
+A) Write a concise spoken-language answer to the user's query, grounded ONLY in the provided chunks. 2-5 sentences. Do not invent facts that are not in the chunks. If the chunks do not actually answer the query, say so briefly.
+
+B) Create a logical "highlight reel" of clips that backs up your answer by stringing the most relevant moments together.
+
+CLIP RULES:
 1. Trim conversational fluff. Find the core answer in the text.
 2. Ensure the text you select represents a COMPLETE thought. Do not cut someone off mid-sentence.
 3. Order the clips chronologically or in a logical narrative sequence.
 4. If a chunk is irrelevant, discard it entirely.
-5. Output ONLY a raw, valid JSON array of objects. No markdown formatting, no explanations.
+
+Output ONLY a raw, valid JSON object. No markdown formatting, no explanations.
 
 Expected JSON schema:
-[
-  {
-    "file_path": "path/to/file.mp3",
-    "start_time_ms": 14500,
-    "end_time_ms": 22000
-  }
-]`;
+{
+  "answer": "A concise text answer to the user's query.",
+  "clips": [
+    {
+      "file_path": "path/to/file.mp3",
+      "start_time_ms": 14500,
+      "end_time_ms": 22000
+    }
+  ]
+}`;
 
 export function compileContext(query: string, hits: Hit[]): string {
   const blocks = hits.map(
@@ -37,33 +45,40 @@ export function compileContext(query: string, hits: Hit[]): string {
   return `USER QUERY: ${query}\n\nRETRIEVED CHUNKS:\n\n${blocks.join("\n")}`;
 }
 
-function extractClips(raw: string): Clip[] {
+function parseReel(raw: string): ReelResult {
   let text = raw.trim();
 
   // Strip ```json ... ``` fences if present.
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (fenced) text = fenced[1].trim();
 
-  // Some models (and Groq json_object mode) wrap the array in an object.
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
+    // Fall back to grabbing the outermost JSON object, then a bare array.
+    const obj = text.match(/\{[\s\S]*\}/);
     const bracket = text.match(/\[[\s\S]*\]/);
-    if (!bracket) throw new Error("Editor did not return parseable JSON.");
-    parsed = JSON.parse(bracket[0]);
+    if (obj) parsed = JSON.parse(obj[0]);
+    else if (bracket) parsed = JSON.parse(bracket[0]);
+    else throw new Error("Editor did not return parseable JSON.");
   }
 
-  let arr: any[];
+  // Locate the answer string and the clips array regardless of exact shape:
+  // { answer, clips }, a bare array of clips, or { something: [...] }.
+  let answer = "";
+  let arr: any[] = [];
   if (Array.isArray(parsed)) {
     arr = parsed;
   } else if (parsed && typeof parsed === "object") {
-    // Find the first array-valued property (e.g. { "clips": [...] }).
-    const vals = Object.values(parsed as Record<string, unknown>);
-    const found = vals.find((v) => Array.isArray(v));
-    arr = (found as any[]) ?? [];
-  } else {
-    arr = [];
+    const obj = parsed as Record<string, unknown>;
+    if (typeof obj.answer === "string") answer = obj.answer.trim();
+    if (Array.isArray(obj.clips)) {
+      arr = obj.clips;
+    } else {
+      const found = Object.values(obj).find((v) => Array.isArray(v));
+      arr = (found as any[]) ?? [];
+    }
   }
 
   const clips: Clip[] = [];
@@ -75,7 +90,7 @@ function extractClips(raw: string): Clip[] {
       clips.push({ file_path: fp, start_time_ms: Math.round(start), end_time_ms: Math.round(end) });
     }
   }
-  return clips;
+  return { answer, clips };
 }
 
 async function geminiEdit(query: string, hits: Hit[]): Promise<string> {
@@ -104,8 +119,8 @@ async function geminiEdit(query: string, hits: Hit[]): Promise<string> {
   return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 }
 
-export async function editClips(query: string, hits: Hit[]): Promise<Clip[]> {
-  if (!hits.length) return [];
+export async function generateReel(query: string, hits: Hit[]): Promise<ReelResult> {
+  if (!hits.length) return { answer: "", clips: [] };
 
   let raw: string;
   if (config.editorProvider === "groq") {
@@ -121,5 +136,5 @@ export async function editClips(query: string, hits: Hit[]): Promise<Clip[]> {
       raw = await groqChatJson(EDITOR_SYSTEM_PROMPT, compileContext(query, hits));
     }
   }
-  return extractClips(raw);
+  return parseReel(raw);
 }
