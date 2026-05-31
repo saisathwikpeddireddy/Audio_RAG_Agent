@@ -1,24 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import dynamic from "next/dynamic";
 import { motion } from "framer-motion";
 import Dropzone from "@/components/Dropzone";
 import CapsuleStack from "@/components/CapsuleStack";
 import SearchPanel from "@/components/SearchPanel";
 import Vault from "@/components/Vault";
 import type { LibraryFile } from "@/lib/types";
-import type { BlobMode } from "@/components/ReactiveBlob";
-
-// Three.js is client-only and heavy — load it lazily, never on the server.
-const ReactiveBlob = dynamic(() => import("@/components/ReactiveBlob"), { ssr: false });
 
 export default function Home() {
   const [library, setLibrary] = useState<LibraryFile[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [vaultOpen, setVaultOpen] = useState(false);
-  const [blobMode, setBlobMode] = useState<BlobMode>("idle");
-  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   async function refresh() {
@@ -115,8 +108,6 @@ export default function Home() {
 
   return (
     <>
-      <ReactiveBlob mode={blobMode} analyser={analyser} />
-
       <main className="wrap">
         <div className="topbar">
           <motion.h1
@@ -133,9 +124,9 @@ export default function Home() {
             onClick={() => setVaultOpen(true)}
             whileHover={{ scale: 1.06, rotate: -2 }}
             whileTap={{ scale: 0.94 }}
-            title="Open the Vault"
+            title="See all the files you've added"
           >
-            📼 Vault{hasFiles ? ` (${library.length})` : ""}
+            📁 Added Files{hasFiles ? ` (${library.length})` : ""}
           </motion.button>
         </div>
 
@@ -153,12 +144,7 @@ export default function Home() {
           onReingest={reingest}
         />
 
-        <SearchPanel
-          library={library}
-          selected={selected}
-          onMode={setBlobMode}
-          onAnalyser={setAnalyser}
-        />
+        <SearchPanel library={library} selected={selected} />
 
         <p className="muted" style={{ marginTop: 24 }}>
           Tip: tap a file to add or remove it from your search. Audio is stitched right in your

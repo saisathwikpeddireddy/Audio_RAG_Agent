@@ -133,23 +133,22 @@ body {
     filter 0.12s ease, opacity 0.12s ease;
 }
 
-/* Active = in the search. Bright, solid, hard shadow. */
+/* Selected = in the search. Solid border, bright accent (set inline), hard shadow. */
 .capsule.active {
   background: var(--cyan);
-  box-shadow: var(--shadow);
+  border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 #000;
 }
 
-/* Inactive = indexed but excluded. Faded + flattened. */
-.capsule.inactive {
-  background: var(--surface);
-  filter: grayscale(0.7);
-  opacity: 0.6;
+/* Unselected = indexed but excluded. Dashed border, light gray, flat. */
+.capsule.unselected {
+  background: #f1f1ee;
+  border: 2px dashed var(--ink);
   box-shadow: 1px 1px 0 var(--ink);
 }
 
-.capsule.inactive:hover {
-  opacity: 0.85;
-  filter: grayscale(0.2);
+.capsule.unselected:hover {
+  background: #fff7d6;
 }
 
 /* Still indexing — animated candy-stripe, not selectable. */
@@ -174,9 +173,18 @@ body {
   pointer-events: none;
 }
 
-.capsule-dot {
-  font-size: 10px;
+.capsule-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  font-weight: 700;
   line-height: 1;
+  border: 2px solid var(--ink);
+  border-radius: 5px;
+  background: var(--surface);
 }
 
 .capsule-name {
@@ -258,23 +266,6 @@ strong {
 
 .drop-big-sm {
   font-size: 15px;
-}
-
-/* Tone selector tucked into the corner of the dropzone. */
-.drop-tone {
-  position: absolute;
-  top: 10px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.drop-tone select {
-  width: auto;
-  padding: 5px 8px;
-  font-size: 12px;
-  box-shadow: 1px 1px 0 var(--ink);
 }
 
 .drop.hover {
@@ -777,28 +768,31 @@ a.dl {
 
 .block {
   position: relative;
-  height: 42px;
+  height: 46px;
   border: var(--border);
   border-radius: 8px;
-  min-width: 26px;
+  min-width: 24px;
   box-shadow: var(--shadow-sm);
   display: flex;
   align-items: center;
-  justify-content: center;
+  overflow: hidden;
 }
 
-/* "FUSED JOIN" badge on a block that merged multiple retrieved clips. */
-.fused-badge {
+/* Source + timestamp baked into each colored block; truncates cleanly. */
+.block-label {
   font-family: var(--font-mono), monospace;
   font-size: 10px;
   font-weight: 700;
-  color: var(--ink);
-  background: #fff;
-  border: 2px solid var(--ink);
-  border-radius: 12px;
-  padding: 1px 6px;
+  color: #000; /* solid black on the bright block backgrounds */
   white-space: nowrap;
-  box-shadow: 1px 1px 0 var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 7px;
+  width: 100%;
+}
+
+.block-fused {
+  margin-right: 4px;
 }
 
 .timeline.seekable {
@@ -996,4 +990,26 @@ a.dl {
 .vault-meta {
   margin-top: 3px;
   font-size: 11px;
+}
+
+/* ---- Kinetic Brutalist Equalizer (in the player transport) ---- */
+.eq {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 40px;
+  padding: 5px 8px;
+  border: var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  flex: none;
+}
+
+.eq-bar {
+  width: 7px;
+  min-height: 4px;
+  border: 2px solid var(--ink);
+  border-radius: 3px;
+  align-self: flex-end;
 }

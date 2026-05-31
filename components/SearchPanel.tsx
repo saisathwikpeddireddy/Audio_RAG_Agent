@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
+import Equalizer, { type EqState } from "@/components/Equalizer";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
-import type { BlobMode } from "@/components/ReactiveBlob";
 
 const BLOCK_COLORS = ["#ec4899", "#06b6d4", "#eab308"];
 
 // Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
-// human title ("The Attention Equation v3") for the sources receipt.
+// human title ("The Attention Equation v3") for the sources receipt + timeline.
 function cleanSourceName(path?: string): string {
   if (!path) return "unknown source";
   let name = path.split("/").pop() || path;
@@ -35,13 +35,9 @@ function fmtTime(s: number): string {
 export default function SearchPanel({
   library,
   selected,
-  onMode,
-  onAnalyser,
 }: {
   library: LibraryFile[];
   selected: string[];
-  onMode?: (m: BlobMode) => void;
-  onAnalyser?: (a: AnalyserNode | null) => void;
 }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -57,21 +53,20 @@ export default function SearchPanel({
   const [curTime, setCurTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showRaw, setShowRaw] = useState(false);
+  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const srcRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   const readyCount = useMemo(() => library.filter((f) => f.status === "ready").length, [library]);
+  const eqState: EqState = busy ? "searching" : playing ? "playing" : "idle";
 
-  // Tear down audio graph + reset the blob when this panel unmounts.
+  // Tear down the audio graph when this panel unmounts.
   useEffect(() => {
     return () => {
-      onMode?.("idle");
-      onAnalyser?.(null);
       ctxRef.current?.close().catch(() => {});
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Grounded one-click prompts from whichever sources are currently active.
@@ -92,21 +87,21 @@ export default function SearchPanel({
     return out.slice(0, 6);
   }, [library, selected]);
 
-  // Lazily route the <audio> element through an analyser so the blob can react.
+  // Lazily route the <audio> element through an analyser so the EQ can react.
   function ensureAnalyser() {
     const el = audioRef.current;
     if (!el || srcRef.current) return;
     try {
       const Ctx = window.AudioContext || (window as any).webkitAudioContext;
       const ctx = new Ctx();
-      const analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
+      const node = ctx.createAnalyser();
+      node.fftSize = 256;
       const src = ctx.createMediaElementSource(el);
-      src.connect(analyser);
-      analyser.connect(ctx.destination);
+      src.connect(node);
+      node.connect(ctx.destination);
       ctxRef.current = ctx;
       srcRef.current = src;
-      onAnalyser?.(analyser);
+      setAnalyser(node);
     } catch {
       // Analyser is best-effort; playback still works without it.
     }
@@ -161,7 +156,6 @@ export default function SearchPanel({
     setShowRaw(false);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl("");
-    onMode?.("searching");
 
     try {
       setStage("Digging through your audio…");
@@ -181,21 +175,18 @@ export default function SearchPanel({
 
       if (!data.clips?.length) {
         setStage("");
-        onMode?.("idle");
         if (!data.answer) throw new Error("Couldn't find a clear moment for that — try rephrasing?");
         return;
       }
 
       setStage("Cutting your highlight reel…");
-      const { buffer } = await stitchClips(data.clips, 50);
+      const { buffer } = await stitchClips(data.clips, 400);
       const wav = audioBufferToWav(buffer);
       setAudioUrl(URL.createObjectURL(wav));
       setStage("");
-      onMode?.("idle");
     } catch (e) {
       setError((e as Error).message);
       setStage("");
-      onMode?.("idle");
     } finally {
       setBusy(false);
     }
@@ -282,7 +273,8 @@ export default function SearchPanel({
             )}
           </div>
 
-          {/* Lego-block timeline with a scrubbing playhead. Click to seek. */}
+          {/* Lego-block timeline: each block is labelled with its source +
+              timestamp, and the playhead tracks the audio. Click to seek. */}
           <div
             className={`timeline ${audioUrl ? "seekable" : ""}`}
             onClick={audioUrl ? seekFromTimeline : undefined}
@@ -299,13 +291,15 @@ export default function SearchPanel({
                 initial={{ scale: 0.4, y: -16, opacity: 0 }}
                 animate={{ scale: 1, y: 0, opacity: 1 }}
                 transition={{ type: "spring", stiffness: 320, damping: 14, delay: i * 0.07 }}
-                title={
-                  (c.parts ?? 1) > 1
-                    ? `Fused from ${c.parts} retrieved clips`
-                    : `${c.start_time_ms}–${c.end_time_ms}ms`
-                }
+                title={`${cleanSourceName(c.file_path)} | ${fmtTime(c.start_time_ms / 1000)} - ${fmtTime(
+                  c.end_time_ms / 1000
+                )}${(c.parts ?? 1) > 1 ? ` · fused ${c.parts}` : ""}`}
               >
-                {(c.parts ?? 1) > 1 && <span className="fused-badge">🔗 {c.parts}</span>}
+                <span className="block-label">
+                  {(c.parts ?? 1) > 1 && <span className="block-fused">🔗{c.parts}</span>}
+                  {cleanSourceName(c.file_path)} | {fmtTime(c.start_time_ms / 1000)} -{" "}
+                  {fmtTime(c.end_time_ms / 1000)}
+                </span>
               </motion.div>
             ))}
             {audioUrl && (
@@ -329,6 +323,7 @@ export default function SearchPanel({
           >
             {playing ? "❚❚ PAUSE" : "▶ PLAY"}
           </motion.button>
+          <Equalizer analyser={analyser} state={eqState} />
           <span className="transport-time">
             {fmtTime(curTime)} / {fmtTime(duration)}
           </span>
@@ -345,15 +340,10 @@ export default function SearchPanel({
           ensureAnalyser();
           ctxRef.current?.resume().catch(() => {});
           setPlaying(true);
-          onMode?.("playing");
         }}
-        onPause={() => {
-          setPlaying(false);
-          onMode?.("idle");
-        }}
+        onPause={() => setPlaying(false)}
         onEnded={() => {
           setPlaying(false);
-          onMode?.("idle");
           setProgress(0);
           setCurTime(0);
         }}

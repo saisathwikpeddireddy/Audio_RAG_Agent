@@ -25,7 +25,6 @@ export default function Dropzone({
   onIndexed?: (entry: LibraryFile) => void;
 }) {
   const [items, setItems] = useState<Item[]>([]);
-  const [audioType, setAudioType] = useState("conversational");
   const [hover, setHover] = useState(false);
   const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +50,7 @@ export default function Dropzone({
         const res = await fetch("/api/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: blob.url, filename: file.name, audioType }),
+          body: JSON.stringify({ url: blob.url, filename: file.name, audioType: "conversational" }),
         });
         const data = await res.json();
         if (!res.ok && res.status !== 202) throw new Error(data.error || "Couldn't start indexing");
@@ -107,15 +106,6 @@ export default function Dropzone({
             )}
           </>
         )}
-
-        {/* Tone control, tucked in the corner so it never reads as jargon. */}
-        <div className="drop-tone" onClick={(e) => e.stopPropagation()}>
-          <span className="muted">tone</span>
-          <select value={audioType} onChange={(e) => setAudioType(e.target.value)}>
-            <option value="conversational">conversational</option>
-            <option value="structured">structured</option>
-          </select>
-        </div>
       </motion.div>
 
       <input

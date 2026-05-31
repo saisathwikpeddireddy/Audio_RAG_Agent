@@ -3,6 +3,8 @@
 import { AnimatePresence, motion } from "framer-motion";
 import type { LibraryFile } from "@/lib/types";
 
+const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
+
 function prettyName(filename: string): string {
   let name = filename.replace(/\.[^.]+$/, "");
   try {
@@ -13,9 +15,9 @@ function prettyName(filename: string): string {
   return name.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
-// The capsule stack: every indexed file as a chunky, tappable pill. Tapping a
-// ready pill toggles whether it's searched; processing/failed pills show their
-// own state and can't be selected.
+// The capsule stack: every indexed file as a chunky, tappable pill with an
+// explicit selected/unselected state (not color alone). Tapping a ready pill
+// toggles whether it's searched; processing/failed pills show their own state.
 export default function CapsuleStack({
   library,
   selected,
@@ -33,15 +35,16 @@ export default function CapsuleStack({
   return (
     <div className="capsules">
       <AnimatePresence initial={false}>
-        {library.map((f) => {
+        {library.map((f, i) => {
           const ready = f.status === "ready";
           const active = ready && sel.has(f.file_id);
-          const cls = ready ? (active ? "active" : "inactive") : f.status; // "processing" | "failed"
+          const cls = ready ? (active ? "active" : "unselected") : f.status; // "processing" | "failed"
           return (
             <motion.button
               type="button"
               key={f.file_id}
               className={`capsule ${cls}`}
+              style={active ? { background: ACCENTS[i % ACCENTS.length] } : undefined}
               onClick={() => ready && onToggle(f.file_id)}
               disabled={!ready}
               layout
@@ -49,11 +52,11 @@ export default function CapsuleStack({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.6, x: 24 }}
               transition={{ type: "spring", stiffness: 320, damping: 22 }}
-              whileHover={ready ? { scale: 1.04, rotate: -1 } : undefined}
+              whileHover={ready ? { scale: 1.02 } : undefined}
               whileTap={ready ? { scale: 0.96 } : undefined}
               title={f.filename}
             >
-              {ready && <span className="capsule-dot">{active ? "●" : "○"}</span>}
+              {ready && <span className="capsule-icon">{active ? "✓" : "+"}</span>}
               <span className="capsule-name">{prettyName(f.filename)}</span>
               {ready && <span className="capsule-meta">{f.children} bits</span>}
               {f.status === "processing" && <span className="capsule-state">Listening &amp; Indexing…</span>}

@@ -1,6 +1,8 @@
 // Phase 3 (browser): fetch the referenced audio, slice each clip by millisecond,
-// join with a short linear crossfade, and render to a single playable buffer.
-// Runs entirely client-side via the Web Audio API — no ffmpeg required.
+// and render to a single playable buffer. Clips are placed back-to-back with a
+// hard gap of absolute silence between them (no crossfade) — speech transients
+// (leading/trailing consonants) survive intact, and the gap gives the listener
+// a "breath" to register each context switch. Client-side via Web Audio.
 
 import type { Clip } from "./types";
 
@@ -22,18 +24,20 @@ export interface StitchResult {
   durationSec: number;
 }
 
-// Render clips into one AudioBuffer with `crossfadeMs` overlaps between them.
-export async function stitchClips(clips: Clip[], crossfadeMs = 50): Promise<StitchResult> {
+// Render clips into one AudioBuffer, separated by `gapMs` of absolute silence.
+// The silence is baked into the rendered buffer, so the <audio> element's
+// currentTime/duration include the gaps and the visual playhead stays in sync.
+export async function stitchClips(clips: Clip[], gapMs = 400): Promise<StitchResult> {
   if (!clips.length) throw new Error("No clips to stitch.");
 
   // A scratch context just for decoding (decodeAudioData needs a context).
   const decodeCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
 
-  // Pre-load + resolve each clip's slice as {buffer, startSample, lengthSamples}.
+  // Pre-load + resolve each clip's slice as {buffer, offsetSec, durationSec}.
   type Slice = { source: AudioBuffer; offsetSec: number; durationSec: number };
   const slices: Slice[] = [];
   let sampleRate = 44100;
-  let channels = 2;
+  let channels = 1;
 
   for (const clip of clips) {
     const buf = await loadBuffer(decodeCtx, clip.file_path);
@@ -46,10 +50,10 @@ export async function stitchClips(clips: Clip[], crossfadeMs = 50): Promise<Stit
   }
   if (!slices.length) throw new Error("All clips were empty after clamping.");
 
-  const crossfadeSec = crossfadeMs / 1000;
-  // Total timeline = sum of clip durations minus the overlapped crossfades.
+  const gapSec = Math.max(0, gapMs / 1000);
+  // Total timeline = sum of clip durations + the injected silent gaps between.
   const totalSec =
-    slices.reduce((acc, s) => acc + s.durationSec, 0) - crossfadeSec * (slices.length - 1);
+    slices.reduce((acc, s) => acc + s.durationSec, 0) + gapSec * (slices.length - 1);
 
   const offline = new OfflineAudioContext(
     channels,
@@ -58,30 +62,14 @@ export async function stitchClips(clips: Clip[], crossfadeMs = 50): Promise<Stit
   );
 
   let cursor = 0; // seconds on the output timeline
-  slices.forEach((slice, i) => {
+  slices.forEach((slice) => {
     const node = offline.createBufferSource();
     node.buffer = slice.source;
-
-    const gain = offline.createGain();
-    node.connect(gain).connect(offline.destination);
-
-    const startAt = cursor;
-    const fadeIn = i > 0 ? crossfadeSec : 0;
-    const fadeOut = i < slices.length - 1 ? crossfadeSec : 0;
-
-    // Linear crossfades at the seams.
-    gain.gain.setValueAtTime(fadeIn > 0 ? 0 : 1, startAt);
-    if (fadeIn > 0) gain.gain.linearRampToValueAtTime(1, startAt + fadeIn);
-    const endAt = startAt + slice.durationSec;
-    if (fadeOut > 0) {
-      gain.gain.setValueAtTime(1, endAt - fadeOut);
-      gain.gain.linearRampToValueAtTime(0, endAt);
-    }
-
-    node.start(startAt, slice.offsetSec, slice.durationSec);
-
-    // Advance the cursor, overlapping the next clip by one crossfade.
-    cursor = endAt - fadeOut;
+    // No gain ramps — play each slice at full volume so consonants stay crisp.
+    node.connect(offline.destination);
+    node.start(cursor, slice.offsetSec, slice.durationSec);
+    // Advance past this clip plus a hard gap of silence before the next one.
+    cursor += slice.durationSec + gapSec;
   });
 
   const rendered = await offline.startRendering();
