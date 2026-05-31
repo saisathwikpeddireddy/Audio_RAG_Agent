@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
@@ -9,6 +9,14 @@ import type { Hit, Clip, LibraryFile } from "@/lib/types";
 // in the library — so a block's color is a legend back to its source capsule.
 const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
 const FALLBACK_COLOR = "#9ca3af";
+
+// Hard silence (ms) injected between clips. Must match the value passed to
+// stitchClips so the teleprompter's clip windows line up with the rendered audio.
+const GAP_MS = 400;
+
+// Below this rendered width (px) a timeline block hides its timestamp and shows
+// only the file legend key, so text never overflows a narrow block's borders.
+const FULL_LABEL_MIN_WIDTH = 80;
 
 // Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
 // human title ("The Attention Equation v3") for the sources receipt + timeline.
@@ -34,6 +42,98 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
+// A single lego-block on the timeline. Measures its own rendered width so the
+// label can degrade gracefully ([1] 0:27 - 0:46 → [1]), and exposes a hover
+// card with the full timestamp, a transcript preview, and a per-clip download.
+function TimelineBlock({
+  number,
+  color,
+  startSec,
+  endSec,
+  sourceName,
+  transcript,
+  growth,
+  delay,
+  onDownload,
+}: {
+  number: number;
+  color: string;
+  startSec: number;
+  endSec: number;
+  sourceName: string;
+  transcript: string;
+  growth: number;
+  delay: number;
+  onDownload: () => void;
+}) {
+  const blockRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  const [hover, setHover] = useState(false);
+
+  useEffect(() => {
+    const el = blockRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver((entries) => {
+      for (const e of entries) setWidth(e.contentRect.width);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const showFull = width >= FULL_LABEL_MIN_WIDTH;
+  const fullTime = `${fmtTime(startSec)} - ${fmtTime(endSec)}`;
+  const preview =
+    transcript.length > 160 ? `${transcript.slice(0, 160).trimEnd()}…` : transcript;
+
+  return (
+    <div
+      className="block-wrap"
+      style={{ flexGrow: growth, flexBasis: 0 }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
+      <motion.div
+        ref={blockRef}
+        className="block"
+        style={{ background: color }}
+        initial={{ scale: 0.4, y: -16, opacity: 0 }}
+        animate={{ scale: 1, y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 320, damping: 14, delay }}
+        title={`[${number}] ${sourceName} | ${fullTime}`}
+      >
+        <span className="block-label">{showFull ? `[${number}] ${fullTime}` : `[${number}]`}</span>
+      </motion.div>
+
+      <AnimatePresence>
+        {hover && (
+          <motion.div
+            className="hovercard"
+            initial={{ opacity: 0, y: 6, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 6, scale: 0.96 }}
+            transition={{ type: "spring", stiffness: 420, damping: 28 }}
+          >
+            <div className="hovercard-time">
+              File {number} | {fullTime}
+            </div>
+            {preview && <div className="hovercard-text">{preview}</div>}
+            <button
+              type="button"
+              className="hovercard-dl"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDownload();
+              }}
+            >
+              ↓ Download Clip
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function SearchPanel({
   library,
   selected,
@@ -55,6 +155,7 @@ export default function SearchPanel({
   const [curTime, setCurTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showRaw, setShowRaw] = useState(false);
+  const [activeClip, setActiveClip] = useState(-1);
 
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -75,6 +176,39 @@ export default function SearchPanel({
     return (filePath: string) => byUrl.get(filePath) ?? 0;
   }, [library]);
 
+  // Resolve each clip's transcript by finding the retrieved hit (same source)
+  // whose time range overlaps it the most. Powers the hover preview + teleprompter.
+  const transcriptFor = useMemo(() => {
+    const overlap = (a1: number, a2: number, b1: number, b2: number) =>
+      Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+    return (clip: Clip) => {
+      let best: Hit | null = null;
+      let bestOv = 0;
+      for (const h of hits) {
+        if (h.file_path !== clip.file_path) continue;
+        const ov = overlap(clip.start_time_ms, clip.end_time_ms, h.start_time_ms, h.end_time_ms);
+        if (ov > bestOv) {
+          bestOv = ov;
+          best = h;
+        }
+      }
+      return best ? best.child_text || best.parent_text || "" : "";
+    };
+  }, [hits]);
+
+  // Where each clip sits on the stitched output timeline (seconds), accounting
+  // for the hard silence gaps baked between clips. Used to map playback time → clip.
+  const clipWindows = useMemo(() => {
+    const gap = GAP_MS / 1000;
+    let cursor = 0;
+    return clips.map((c) => {
+      const dur = Math.max(0, (c.end_time_ms - c.start_time_ms) / 1000);
+      const start = cursor;
+      cursor += dur + gap;
+      return { start, end: start + dur };
+    });
+  }, [clips]);
+
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
     const sel = new Set(selected);
@@ -93,6 +227,30 @@ export default function SearchPanel({
     return out.slice(0, 6);
   }, [library, selected]);
 
+  // Drive the playhead + teleprompter from a rAF loop while playing: read the
+  // hidden <audio>'s currentTime and resolve which clip window we're inside.
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      const el = audioRef.current;
+      if (el) {
+        const t = el.currentTime;
+        setCurTime(t);
+        if (el.duration) setProgress(t / el.duration);
+        let idx = clipWindows.length ? 0 : -1;
+        for (let i = 0; i < clipWindows.length; i++) {
+          if (t >= clipWindows[i].start) idx = i;
+          else break;
+        }
+        setActiveClip(idx);
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, clipWindows]);
+
   // Custom transport: drive the hidden <audio> directly so the native chrome
   // never appears (it broke the brutalist look).
   function togglePlay() {
@@ -102,6 +260,25 @@ export default function SearchPanel({
       el.play().catch(() => {});
     } else {
       el.pause();
+    }
+  }
+
+  // Slice a single clip out and trigger a local WAV download — same pipeline as
+  // the master reel, isolated to this clip's start/end (no inter-clip gap).
+  async function downloadClip(clip: Clip, number: number) {
+    try {
+      const { buffer } = await stitchClips([clip], 0);
+      const wav = audioBufferToWav(buffer);
+      const url = URL.createObjectURL(wav);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `clip_${number}_${Math.round(clip.start_time_ms / 1000)}s.wav`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError((e as Error).message);
     }
   }
 
@@ -138,6 +315,7 @@ export default function SearchPanel({
     setCurTime(0);
     setDuration(0);
     setShowRaw(false);
+    setActiveClip(-1);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl("");
 
@@ -164,7 +342,7 @@ export default function SearchPanel({
       }
 
       setStage("Cutting your highlight reel…");
-      const { buffer } = await stitchClips(data.clips, 400);
+      const { buffer } = await stitchClips(data.clips, GAP_MS);
       const wav = audioBufferToWav(buffer);
       setAudioUrl(URL.createObjectURL(wav));
       setStage("");
@@ -245,36 +423,38 @@ export default function SearchPanel({
           <div className="muted">{clips.length} clip(s)</div>
 
           {/* Lego-block timeline: each block's color maps to its source file's
-              capsule (a legend), and shows only its timestamp. Click to seek. */}
+              capsule (a legend) and shows its timestamp (or just [N] when too
+              narrow). Hover for a card with a transcript preview + download.
+              Click anywhere to seek. */}
           <div
             className={`timeline ${audioUrl ? "seekable" : ""}`}
             onClick={audioUrl ? seekFromTimeline : undefined}
           >
             {clips.map((c, i) => (
-              <motion.div
+              <TimelineBlock
                 key={`${c.file_path}-${c.start_time_ms}-${i}`}
-                className="block"
-                style={{
-                  background: colorFor(c.file_path),
-                  flexGrow: Math.max(1, c.end_time_ms - c.start_time_ms),
-                  flexBasis: 0,
-                }}
-                initial={{ scale: 0.4, y: -16, opacity: 0 }}
-                animate={{ scale: 1, y: 0, opacity: 1 }}
-                transition={{ type: "spring", stiffness: 320, damping: 14, delay: i * 0.07 }}
-                title={`[${numberFor(c.file_path)}] ${cleanSourceName(c.file_path)} | ${fmtTime(
-                  c.start_time_ms / 1000
-                )} - ${fmtTime(c.end_time_ms / 1000)}`}
-              >
-                <span className="block-label">
-                  [{numberFor(c.file_path)}] {fmtTime(c.start_time_ms / 1000)} -{" "}
-                  {fmtTime(c.end_time_ms / 1000)}
-                </span>
-              </motion.div>
+                number={numberFor(c.file_path)}
+                color={colorFor(c.file_path)}
+                startSec={c.start_time_ms / 1000}
+                endSec={c.end_time_ms / 1000}
+                sourceName={cleanSourceName(c.file_path)}
+                transcript={transcriptFor(c)}
+                growth={Math.max(1, c.end_time_ms - c.start_time_ms)}
+                delay={i * 0.07}
+                onDownload={() => downloadClip(c, numberFor(c.file_path))}
+              />
             ))}
             {audioUrl && (
               <div className="playhead" style={{ left: `${Math.min(1, progress) * 100}%` }} />
             )}
+          </div>
+
+          {/* Teleprompter: snaps to the transcript of the clip currently playing
+              so you can read along; idle until playback starts. */}
+          <div className="teleprompter">
+            {playing && activeClip >= 0 && activeClip < clips.length
+              ? transcriptFor(clips[activeClip]) || "…"
+              : "Hit play to read along…"}
           </div>
         </div>
       )}
@@ -310,6 +490,7 @@ export default function SearchPanel({
           setPlaying(false);
           setProgress(0);
           setCurTime(0);
+          setActiveClip(-1);
         }}
         onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
         onTimeUpdate={(e) => {
