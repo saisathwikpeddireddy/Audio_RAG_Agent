@@ -1,5 +1,7 @@
 // Shared types across the API routes and the browser.
 
+import type { AudioChunkRecord } from "@/types/pinecone";
+
 export interface Segment {
   start: number; // seconds
   end: number; // seconds
@@ -12,18 +14,11 @@ export interface Parent {
   text: string;
 }
 
-// A Pinecone record following the spec's metadata schema. `file_path` holds the
-// Vercel Blob URL so the browser can fetch the audio to stitch it.
-export interface ChildRecord {
-  _id: string;
-  file_path: string;
-  file_id: string;
-  child_text: string;
-  parent_text: string;
-  start_time_ms: number;
-  end_time_ms: number;
-  audio_type: string;
-}
+// The Pinecone child-vector schema is centralized in @/types/pinecone so the
+// writer (upsert) and reader (search) can never drift. Re-exported as ChildRecord
+// for existing call sites.
+export type ChildRecord = AudioChunkRecord;
+export type { AudioChunkMetadata, AudioChunkRecord } from "@/types/pinecone";
 
 export interface Hit {
   _id: string;

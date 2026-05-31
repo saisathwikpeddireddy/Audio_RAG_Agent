@@ -8,6 +8,21 @@ import type { Clip } from "./types";
 
 const audioBufferCache = new Map<string, AudioBuffer>();
 
+// A single, lazily-created AudioContext shared across every stitch/decode call.
+// Browsers cap the number of live AudioContexts (~6 in Safari), so reusing one
+// instead of new-ing (and orphaning) one per search is essential to avoid the
+// classic Web Audio leak. It's created on first use, which only ever happens
+// behind a user gesture (search / play / download).
+let decodeCtx: AudioContext | null = null;
+
+function getDecodeContext(): AudioContext {
+  if (!decodeCtx || decodeCtx.state === "closed") {
+    const Ctor = window.AudioContext || (window as any).webkitAudioContext;
+    decodeCtx = new Ctor();
+  }
+  return decodeCtx;
+}
+
 async function loadBuffer(ctx: BaseAudioContext, url: string): Promise<AudioBuffer> {
   const cached = audioBufferCache.get(url);
   if (cached) return cached;
@@ -30,8 +45,8 @@ export interface StitchResult {
 export async function stitchClips(clips: Clip[], gapMs = 400): Promise<StitchResult> {
   if (!clips.length) throw new Error("No clips to stitch.");
 
-  // A scratch context just for decoding (decodeAudioData needs a context).
-  const decodeCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+  // Decoding needs a context; reuse the shared singleton (never new one per call).
+  const ctx = getDecodeContext();
 
   // Pre-load + resolve each clip's slice as {buffer, offsetSec, durationSec}.
   type Slice = { source: AudioBuffer; offsetSec: number; durationSec: number };
@@ -40,7 +55,7 @@ export async function stitchClips(clips: Clip[], gapMs = 400): Promise<StitchRes
   let channels = 1;
 
   for (const clip of clips) {
-    const buf = await loadBuffer(decodeCtx, clip.file_path);
+    const buf = await loadBuffer(ctx, clip.file_path);
     sampleRate = buf.sampleRate;
     channels = Math.max(channels, buf.numberOfChannels);
     const start = Math.max(0, clip.start_time_ms / 1000);
@@ -62,19 +77,33 @@ export async function stitchClips(clips: Clip[], gapMs = 400): Promise<StitchRes
   );
 
   let cursor = 0; // seconds on the output timeline
+  const nodes: AudioBufferSourceNode[] = [];
   slices.forEach((slice) => {
     const node = offline.createBufferSource();
     node.buffer = slice.source;
     // No gain ramps — play each slice at full volume so consonants stay crisp.
     node.connect(offline.destination);
     node.start(cursor, slice.offsetSec, slice.durationSec);
+    nodes.push(node);
     // Advance past this clip plus a hard gap of silence before the next one.
     cursor += slice.durationSec + gapSec;
   });
 
-  const rendered = await offline.startRendering();
-  decodeCtx.close();
-  return { buffer: rendered, durationSec: rendered.duration };
+  try {
+    const rendered = await offline.startRendering();
+    return { buffer: rendered, durationSec: rendered.duration };
+  } finally {
+    // Explicitly tear down the source nodes so they don't linger as detached
+    // Web Audio objects. The shared decode context is intentionally NOT closed
+    // (it's reused across searches); the OfflineAudioContext is GC'd on its own.
+    for (const n of nodes) {
+      try {
+        n.disconnect();
+      } catch {
+        // already disconnected
+      }
+    }
+  }
 }
 
 // Encode an AudioBuffer to a 16-bit PCM WAV Blob (universally playable/downloadable).

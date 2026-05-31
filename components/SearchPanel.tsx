@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
@@ -17,6 +17,8 @@ const GAP_MS = 400;
 // Below this rendered width (px) a timeline block hides its timestamp and shows
 // only the file legend key, so text never overflows a narrow block's borders.
 const FULL_LABEL_MIN_WIDTH = 80;
+
+type ClipWindow = { start: number; end: number };
 
 // Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
 // human title ("The Attention Equation v3") for the sources receipt + timeline.
@@ -42,29 +44,136 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-// A single lego-block on the timeline. Measures its own rendered width so the
-// label can degrade gracefully ([1] 0:27 - 0:46 → [1]), and exposes a hover
-// card with the full timestamp, a transcript preview, and a per-clip download.
-function TimelineBlock({
+// Subscribe to the hidden <audio>'s current time. Uses requestAnimationFrame
+// while playing for smoothness, and discrete media events (seek/load) when paused
+// so the playhead still tracks scrubbing. This lives ONLY inside leaf components,
+// so the 60fps updates never re-render the parent workspace or the memoized blocks.
+function usePlaybackTime(
+  audioRef: React.RefObject<HTMLAudioElement>,
+  playing: boolean
+): number {
+  const [time, setTime] = useState(0);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    const sync = () => setTime(el.currentTime);
+    const reset = () => setTime(0);
+    el.addEventListener("seeked", sync);
+    el.addEventListener("loadedmetadata", sync);
+    el.addEventListener("ended", reset);
+    return () => {
+      el.removeEventListener("seeked", sync);
+      el.removeEventListener("loadedmetadata", sync);
+      el.removeEventListener("ended", reset);
+    };
+  }, [audioRef]);
+
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    const tick = () => {
+      const el = audioRef.current;
+      if (el) setTime(el.currentTime);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, audioRef]);
+
+  return time;
+}
+
+function audioDuration(audioRef: React.RefObject<HTMLAudioElement>): number {
+  const d = audioRef.current?.duration;
+  return d && Number.isFinite(d) ? d : 0;
+}
+
+// The moving playhead. Isolated leaf so its per-frame position updates don't
+// touch the timeline blocks.
+const Playhead = memo(function Playhead({
+  audioRef,
+  playing,
+}: {
+  audioRef: React.RefObject<HTMLAudioElement>;
+  playing: boolean;
+}) {
+  const time = usePlaybackTime(audioRef, playing);
+  const dur = audioDuration(audioRef);
+  const frac = dur ? Math.min(1, time / dur) : 0;
+  return <div className="playhead" style={{ left: `${frac * 100}%` }} />;
+});
+
+// The MM:SS / MM:SS readout. Isolated so its updates don't re-render the panel.
+const TransportClock = memo(function TransportClock({
+  audioRef,
+  playing,
+}: {
+  audioRef: React.RefObject<HTMLAudioElement>;
+  playing: boolean;
+}) {
+  const time = usePlaybackTime(audioRef, playing);
+  return (
+    <span className="transport-time">
+      {fmtTime(time)} / {fmtTime(audioDuration(audioRef))}
+    </span>
+  );
+});
+
+// The teleprompter snaps to the transcript of the clip currently playing. Owns
+// its own high-frequency time state so the rest of the tree stays still.
+const Teleprompter = memo(function Teleprompter({
+  audioRef,
+  playing,
+  clips,
+  clipWindows,
+  transcriptFor,
+}: {
+  audioRef: React.RefObject<HTMLAudioElement>;
+  playing: boolean;
+  clips: Clip[];
+  clipWindows: ClipWindow[];
+  transcriptFor: (clip: Clip) => string;
+}) {
+  const time = usePlaybackTime(audioRef, playing);
+
+  let idx = -1;
+  if (playing && clipWindows.length) {
+    idx = 0;
+    for (let i = 0; i < clipWindows.length; i++) {
+      if (time >= clipWindows[i].start) idx = i;
+      else break;
+    }
+  }
+
+  const text =
+    playing && idx >= 0 && idx < clips.length
+      ? transcriptFor(clips[idx]) || "…"
+      : "Hit play to read along…";
+
+  return <div className="teleprompter">{text}</div>;
+});
+
+// A single lego-block on the timeline. Memoized so the 60fps playback leaves it
+// untouched. Measures its own rendered width so the label degrades gracefully
+// ([1] 0:27 - 0:46 → [1]), and exposes a hover card with the full timestamp, a
+// transcript preview, and a per-clip download.
+const TimelineBlock = memo(function TimelineBlock({
+  clip,
+  index,
   number,
   color,
-  startSec,
-  endSec,
   sourceName,
   transcript,
-  growth,
-  delay,
-  onDownload,
+  onDownloadClip,
 }: {
+  clip: Clip;
+  index: number;
   number: number;
   color: string;
-  startSec: number;
-  endSec: number;
   sourceName: string;
   transcript: string;
-  growth: number;
-  delay: number;
-  onDownload: () => void;
+  onDownloadClip: (clip: Clip, number: number) => void;
 }) {
   const blockRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -80,6 +189,8 @@ function TimelineBlock({
     return () => ro.disconnect();
   }, []);
 
+  const startSec = clip.start_time_ms / 1000;
+  const endSec = clip.end_time_ms / 1000;
   const showFull = width >= FULL_LABEL_MIN_WIDTH;
   const fullTime = `${fmtTime(startSec)} - ${fmtTime(endSec)}`;
   const preview =
@@ -88,7 +199,7 @@ function TimelineBlock({
   return (
     <div
       className="block-wrap"
-      style={{ flexGrow: growth, flexBasis: 0 }}
+      style={{ flexGrow: Math.max(1, clip.end_time_ms - clip.start_time_ms), flexBasis: 0 }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
@@ -98,7 +209,7 @@ function TimelineBlock({
         style={{ background: color }}
         initial={{ scale: 0.4, y: -16, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 320, damping: 14, delay }}
+        transition={{ type: "spring", stiffness: 320, damping: 14, delay: index * 0.07 }}
         title={`[${number}] ${sourceName} | ${fullTime}`}
       >
         <span className="block-label">{showFull ? `[${number}] ${fullTime}` : `[${number}]`}</span>
@@ -122,7 +233,7 @@ function TimelineBlock({
               className="hovercard-dl"
               onClick={(e) => {
                 e.stopPropagation();
-                onDownload();
+                onDownloadClip(clip, number);
               }}
             >
               ↓ Download Clip
@@ -132,7 +243,7 @@ function TimelineBlock({
       </AnimatePresence>
     </div>
   );
-}
+});
 
 export default function SearchPanel({
   library,
@@ -150,12 +261,8 @@ export default function SearchPanel({
   const [rawClips, setRawClips] = useState(0);
   const [answer, setAnswer] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
-  const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [curTime, setCurTime] = useState(0);
-  const [duration, setDuration] = useState(0);
   const [showRaw, setShowRaw] = useState(false);
-  const [activeClip, setActiveClip] = useState(-1);
 
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -178,10 +285,10 @@ export default function SearchPanel({
 
   // Resolve each clip's transcript by finding the retrieved hit (same source)
   // whose time range overlaps it the most. Powers the hover preview + teleprompter.
-  const transcriptFor = useMemo(() => {
-    const overlap = (a1: number, a2: number, b1: number, b2: number) =>
-      Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
-    return (clip: Clip) => {
+  const transcriptFor = useCallback(
+    (clip: Clip) => {
+      const overlap = (a1: number, a2: number, b1: number, b2: number) =>
+        Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
       let best: Hit | null = null;
       let bestOv = 0;
       for (const h of hits) {
@@ -193,12 +300,13 @@ export default function SearchPanel({
         }
       }
       return best ? best.child_text || best.parent_text || "" : "";
-    };
-  }, [hits]);
+    },
+    [hits]
+  );
 
   // Where each clip sits on the stitched output timeline (seconds), accounting
-  // for the hard silence gaps baked between clips. Used to map playback time → clip.
-  const clipWindows = useMemo(() => {
+  // for the hard silence gaps baked between clips. Maps playback time → clip.
+  const clipWindows = useMemo<ClipWindow[]>(() => {
     const gap = GAP_MS / 1000;
     let cursor = 0;
     return clips.map((c) => {
@@ -227,30 +335,6 @@ export default function SearchPanel({
     return out.slice(0, 6);
   }, [library, selected]);
 
-  // Drive the playhead + teleprompter from a rAF loop while playing: read the
-  // hidden <audio>'s currentTime and resolve which clip window we're inside.
-  useEffect(() => {
-    if (!playing) return;
-    let raf = 0;
-    const tick = () => {
-      const el = audioRef.current;
-      if (el) {
-        const t = el.currentTime;
-        setCurTime(t);
-        if (el.duration) setProgress(t / el.duration);
-        let idx = clipWindows.length ? 0 : -1;
-        for (let i = 0; i < clipWindows.length; i++) {
-          if (t >= clipWindows[i].start) idx = i;
-          else break;
-        }
-        setActiveClip(idx);
-      }
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [playing, clipWindows]);
-
   // Custom transport: drive the hidden <audio> directly so the native chrome
   // never appears (it broke the brutalist look).
   function togglePlay() {
@@ -265,7 +349,8 @@ export default function SearchPanel({
 
   // Slice a single clip out and trigger a local WAV download — same pipeline as
   // the master reel, isolated to this clip's start/end (no inter-clip gap).
-  async function downloadClip(clip: Clip, number: number) {
+  // Stable identity keeps the memoized TimelineBlocks from re-rendering.
+  const onDownloadClip = useCallback(async (clip: Clip, number: number) => {
     try {
       const { buffer } = await stitchClips([clip], 0);
       const wav = audioBufferToWav(buffer);
@@ -280,16 +365,16 @@ export default function SearchPanel({
     } catch (e) {
       setError((e as Error).message);
     }
-  }
+  }, []);
 
-  // Click anywhere on the lego timeline to scrub — replaces the native bar.
+  // Click anywhere on the lego timeline to scrub — replaces the native bar. The
+  // isolated <Playhead> picks up the new position via the audio's "seeked" event.
   function seekFromTimeline(e: React.MouseEvent<HTMLDivElement>) {
     const el = audioRef.current;
     if (!el || !audioUrl || !el.duration) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
     el.currentTime = frac * el.duration;
-    setProgress(frac);
   }
 
   async function run(override?: string) {
@@ -310,12 +395,8 @@ export default function SearchPanel({
     setClips([]);
     setRawClips(0);
     setAnswer("");
-    setProgress(0);
     setPlaying(false);
-    setCurTime(0);
-    setDuration(0);
     setShowRaw(false);
-    setActiveClip(-1);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl("");
 
@@ -327,7 +408,8 @@ export default function SearchPanel({
         body: JSON.stringify({ query: q, fileIds: selected }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Search failed");
+      // Prefer the friendly, classified message from the API (e.g. rate-limit copy).
+      if (!res.ok) throw new Error(data.message || data.error || "Search failed");
 
       setHits(data.hits ?? []);
       setClips(data.clips ?? []);
@@ -433,29 +515,27 @@ export default function SearchPanel({
             {clips.map((c, i) => (
               <TimelineBlock
                 key={`${c.file_path}-${c.start_time_ms}-${i}`}
+                clip={c}
+                index={i}
                 number={numberFor(c.file_path)}
                 color={colorFor(c.file_path)}
-                startSec={c.start_time_ms / 1000}
-                endSec={c.end_time_ms / 1000}
                 sourceName={cleanSourceName(c.file_path)}
                 transcript={transcriptFor(c)}
-                growth={Math.max(1, c.end_time_ms - c.start_time_ms)}
-                delay={i * 0.07}
-                onDownload={() => downloadClip(c, numberFor(c.file_path))}
+                onDownloadClip={onDownloadClip}
               />
             ))}
-            {audioUrl && (
-              <div className="playhead" style={{ left: `${Math.min(1, progress) * 100}%` }} />
-            )}
+            {audioUrl && <Playhead audioRef={audioRef} playing={playing} />}
           </div>
 
           {/* Teleprompter: snaps to the transcript of the clip currently playing
               so you can read along; idle until playback starts. */}
-          <div className="teleprompter">
-            {playing && activeClip >= 0 && activeClip < clips.length
-              ? transcriptFor(clips[activeClip]) || "…"
-              : "Hit play to read along…"}
-          </div>
+          <Teleprompter
+            audioRef={audioRef}
+            playing={playing}
+            clips={clips}
+            clipWindows={clipWindows}
+            transcriptFor={transcriptFor}
+          />
         </div>
       )}
 
@@ -472,9 +552,7 @@ export default function SearchPanel({
           >
             {playing ? "❚❚ PAUSE" : "▶ PLAY"}
           </motion.button>
-          <span className="transport-time">
-            {fmtTime(curTime)} / {fmtTime(duration)}
-          </span>
+          <TransportClock audioRef={audioRef} playing={playing} />
           <a className="dl transport-dl" href={audioUrl} download="highlight_reel.wav">
             ↓ WAV
           </a>
@@ -486,18 +564,7 @@ export default function SearchPanel({
         style={{ display: "none" }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
-        onEnded={() => {
-          setPlaying(false);
-          setProgress(0);
-          setCurTime(0);
-          setActiveClip(-1);
-        }}
-        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
-        onTimeUpdate={(e) => {
-          const el = e.currentTarget;
-          setCurTime(el.currentTime);
-          if (el.duration) setProgress(el.currentTime / el.duration);
-        }}
+        onEnded={() => setPlaying(false)}
       />
 
       {clips.length > 0 && hits.length > 0 && (

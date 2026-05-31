@@ -2,7 +2,8 @@
 
 import { Pinecone } from "@pinecone-database/pinecone";
 import { config } from "./config";
-import type { ChildRecord, Hit } from "./types";
+import type { Hit } from "./types";
+import type { AudioChunkRecord, AudioChunkMetadata } from "@/types/pinecone";
 
 let pc: Pinecone | null = null;
 
@@ -37,11 +38,12 @@ export async function ensureIndex() {
   return client().index(name).namespace(config.pineconeNamespace);
 }
 
-export async function upsertChildren(records: ChildRecord[], batchSize = 90) {
+export async function upsertChildren(records: AudioChunkRecord[], batchSize = 90) {
   const ns = await ensureIndex();
   for (let i = 0; i < records.length; i += batchSize) {
-    const batch = records.slice(i, i + batchSize);
-    // upsertRecords embeds `child_text` for us via the integrated model.
+    const batch: AudioChunkRecord[] = records.slice(i, i + batchSize);
+    // upsertRecords embeds `child_text` for us via the integrated model. The
+    // AudioChunkRecord type enforces the metadata schema at the call boundary.
     await ns.upsertRecords({
       records: batch as unknown as Array<Record<string, string | number> & { _id: string }>,
     });
@@ -63,16 +65,18 @@ export async function search(queryText: string, topK: number, fileIds?: string[]
 
   const hits = res.result?.hits ?? [];
   return hits.map((h: any) => {
-    const f = h.fields ?? {};
+    // Read fields through the centralized metadata schema so a field rename
+    // upstream is a compile error here, not a silent empty result.
+    const f = (h.fields ?? {}) as Partial<AudioChunkMetadata>;
     return {
       _id: h._id,
       _score: h._score,
-      file_path: f.file_path,
-      parent_text: f.parent_text,
-      child_text: f.child_text,
+      file_path: f.file_path as string,
+      parent_text: f.parent_text as string,
+      child_text: f.child_text as string,
       start_time_ms: Number(f.start_time_ms),
       end_time_ms: Number(f.end_time_ms),
-      audio_type: f.audio_type,
+      audio_type: f.audio_type as string,
     } as Hit;
   });
 }
