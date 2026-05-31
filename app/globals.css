@@ -781,14 +781,15 @@ a.dl {
 /* Source + timestamp baked into each colored block; truncates cleanly. */
 .block-label {
   font-family: var(--font-mono), monospace;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   color: #000; /* solid black on the bright block backgrounds */
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding: 0 7px;
+  padding: 0 6px;
   width: 100%;
+  text-align: center;
 }
 
 .block-fused {
@@ -992,24 +993,3 @@ a.dl {
   font-size: 11px;
 }
 
-/* ---- Kinetic Brutalist Equalizer (in the player transport) ---- */
-.eq {
-  display: flex;
-  align-items: flex-end;
-  gap: 4px;
-  height: 40px;
-  padding: 5px 8px;
-  border: var(--border);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--shadow-sm);
-  flex: none;
-}
-
-.eq-bar {
-  width: 7px;
-  min-height: 4px;
-  border: 2px solid var(--ink);
-  border-radius: 3px;
-  align-self: flex-end;
-}

@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
-import Equalizer, { type EqState } from "@/components/Equalizer";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 
-const BLOCK_COLORS = ["#ec4899", "#06b6d4", "#eab308"];
+// Must match the capsule accents in CapsuleStack, keyed by the file's position
+// in the library — so a block's color is a legend back to its source capsule.
+const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
+const FALLBACK_COLOR = "#9ca3af";
 
 // Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
 // human title ("The Attention Equation v3") for the sources receipt + timeline.
@@ -53,21 +55,18 @@ export default function SearchPanel({
   const [curTime, setCurTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showRaw, setShowRaw] = useState(false);
-  const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
 
   const audioRef = useRef<HTMLAudioElement>(null);
-  const ctxRef = useRef<AudioContext | null>(null);
-  const srcRef = useRef<MediaElementAudioSourceNode | null>(null);
 
   const readyCount = useMemo(() => library.filter((f) => f.status === "ready").length, [library]);
-  const eqState: EqState = busy ? "searching" : playing ? "playing" : "idle";
 
-  // Tear down the audio graph when this panel unmounts.
-  useEffect(() => {
-    return () => {
-      ctxRef.current?.close().catch(() => {});
-    };
-  }, []);
+  // Map a clip's source (its blob URL == library blob_url) to that file's capsule
+  // accent, so the timeline doubles as a color legend for the active sources.
+  const colorFor = useMemo(() => {
+    const byUrl = new Map<string, string>();
+    library.forEach((f, i) => byUrl.set(f.blob_url, ACCENTS[i % ACCENTS.length]));
+    return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
+  }, [library]);
 
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
@@ -87,34 +86,12 @@ export default function SearchPanel({
     return out.slice(0, 6);
   }, [library, selected]);
 
-  // Lazily route the <audio> element through an analyser so the EQ can react.
-  function ensureAnalyser() {
-    const el = audioRef.current;
-    if (!el || srcRef.current) return;
-    try {
-      const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new Ctx();
-      const node = ctx.createAnalyser();
-      node.fftSize = 256;
-      const src = ctx.createMediaElementSource(el);
-      src.connect(node);
-      node.connect(ctx.destination);
-      ctxRef.current = ctx;
-      srcRef.current = src;
-      setAnalyser(node);
-    } catch {
-      // Analyser is best-effort; playback still works without it.
-    }
-  }
-
   // Custom transport: drive the hidden <audio> directly so the native chrome
   // never appears (it broke the brutalist look).
   function togglePlay() {
     const el = audioRef.current;
     if (!el) return;
     if (el.paused) {
-      ensureAnalyser();
-      ctxRef.current?.resume().catch(() => {});
       el.play().catch(() => {});
     } else {
       el.pause();
@@ -273,8 +250,8 @@ export default function SearchPanel({
             )}
           </div>
 
-          {/* Lego-block timeline: each block is labelled with its source +
-              timestamp, and the playhead tracks the audio. Click to seek. */}
+          {/* Lego-block timeline: each block's color maps to its source file's
+              capsule (a legend), and shows only its timestamp. Click to seek. */}
           <div
             className={`timeline ${audioUrl ? "seekable" : ""}`}
             onClick={audioUrl ? seekFromTimeline : undefined}
@@ -284,7 +261,7 @@ export default function SearchPanel({
                 key={`${c.file_path}-${c.start_time_ms}-${i}`}
                 className="block"
                 style={{
-                  background: BLOCK_COLORS[i % BLOCK_COLORS.length],
+                  background: colorFor(c.file_path),
                   flexGrow: Math.max(1, c.end_time_ms - c.start_time_ms),
                   flexBasis: 0,
                 }}
@@ -297,8 +274,7 @@ export default function SearchPanel({
               >
                 <span className="block-label">
                   {(c.parts ?? 1) > 1 && <span className="block-fused">🔗{c.parts}</span>}
-                  {cleanSourceName(c.file_path)} | {fmtTime(c.start_time_ms / 1000)} -{" "}
-                  {fmtTime(c.end_time_ms / 1000)}
+                  {fmtTime(c.start_time_ms / 1000)} - {fmtTime(c.end_time_ms / 1000)}
                 </span>
               </motion.div>
             ))}
@@ -310,9 +286,8 @@ export default function SearchPanel({
       )}
 
       {/* Custom brutalist transport replaces the native player. The <audio> is
-          kept permanently mounted but visually hidden so the analyser
-          (createMediaElementSource runs once per element) stays valid across
-          repeated queries. */}
+          kept permanently mounted but visually hidden, driven directly via the
+          ref so the native chrome never shows. */}
       {audioUrl && (
         <div className="transport">
           <motion.button
@@ -323,7 +298,6 @@ export default function SearchPanel({
           >
             {playing ? "❚❚ PAUSE" : "▶ PLAY"}
           </motion.button>
-          <Equalizer analyser={analyser} state={eqState} />
           <span className="transport-time">
             {fmtTime(curTime)} / {fmtTime(duration)}
           </span>
@@ -336,11 +310,7 @@ export default function SearchPanel({
         ref={audioRef}
         src={audioUrl || undefined}
         style={{ display: "none" }}
-        onPlay={() => {
-          ensureAnalyser();
-          ctxRef.current?.resume().catch(() => {});
-          setPlaying(true);
-        }}
+        onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
         onEnded={() => {
           setPlaying(false);
