@@ -198,13 +198,6 @@ body {
   font-family: var(--font-mono), monospace;
 }
 
-.capsule-meta {
-  font-family: var(--font-mono), monospace;
-  font-size: 10px;
-  font-weight: 700;
-  opacity: 0.7;
-}
-
 .capsule-state {
   font-family: var(--font-mono), monospace;
   font-size: 11px;
@@ -794,10 +787,6 @@ a.dl {
   padding: 0 6px;
   width: 100%;
   text-align: center;
-}
-
-.block-fused {
-  margin-right: 4px;
 }
 
 .timeline.seekable {
