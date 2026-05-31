@@ -12,6 +12,7 @@ import { buildParents, buildChildRecords } from "@/lib/chunking";
 import { upsertChildren } from "@/lib/pinecone";
 import { suggestQuestions } from "@/lib/suggest";
 import { saveLibraryEntry } from "@/lib/library";
+import { classifyError } from "@/lib/errors";
 import type { LibraryFile } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -107,6 +108,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ entry, status: "processing" }, { status: 202 });
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    const e = classifyError(error);
+    return NextResponse.json({ error: e.code, message: e.message }, { status: e.status });
   }
 }

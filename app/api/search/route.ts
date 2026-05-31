@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { search } from "@/lib/pinecone";
 import { generateReel } from "@/lib/editor";
 import { config } from "@/lib/config";
+import { classifyError } from "@/lib/errors";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -28,6 +29,9 @@ export async function POST(request: Request) {
     // No fusion: each retrieved clip is shown as its own distinct timeline block.
     return NextResponse.json({ hits, clips, answer, rawClips: clips.length });
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    // Classify provider failures (e.g. Groq/Gemini 429s) into a friendly,
+    // machine-readable payload the UI can theme instead of a raw 500.
+    const e = classifyError(error);
+    return NextResponse.json({ error: e.code, message: e.message }, { status: e.status });
   }
 }
