@@ -590,10 +590,38 @@ button.link:disabled {
   scrollbar-color: var(--pink) var(--bg);
 }
 
-/* ---- Audio ---- */
-audio {
-  width: 100%;
+/* ---- Custom brutalist transport (replaces native <audio> chrome) ---- */
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+button.transport-btn {
+  background: var(--pink);
+  color: #fff;
+  letter-spacing: 0.04em;
+  min-width: 128px;
+}
+
+.transport-time {
+  font-family: var(--font-mono), monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 10px;
+  padding: 7px 12px;
+  box-shadow: var(--shadow-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+a.dl.transport-dl {
+  margin-top: 0;
+  margin-left: auto;
 }
 
 a.dl {
@@ -648,6 +676,10 @@ a.dl {
   box-shadow: 1px 1px 0 var(--ink);
 }
 
+.timeline.seekable {
+  cursor: pointer;
+}
+
 .playhead {
   position: absolute;
   top: 6px;
@@ -656,6 +688,34 @@ a.dl {
   background: var(--ink);
   border-radius: 2px;
   pointer-events: none;
+}
+
+/* ---- Raw-sources accordion ("inspect the receipt") ---- */
+.raw-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--surface);
+  border: var(--border);
+  border-radius: 10px;
+  padding: 7px 13px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.08s ease;
+}
+
+.raw-toggle:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow);
+  background: var(--yellow);
+}
+
+.raw-caret {
+  font-size: 11px;
 }
 
 /* ---- Retrieved-chunk hits ---- */
@@ -670,9 +730,34 @@ a.dl {
 }
 
 .hit .meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 9px;
   color: var(--muted);
   font-size: 11px;
-  margin-top: 5px;
+  margin-top: 8px;
+}
+
+.match-badge {
+  font-family: var(--font-mono), monospace;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--cyan);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 2px 8px;
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.hit-name {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.hit-time {
+  font-family: var(--font-mono), monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ---- Errors ---- */

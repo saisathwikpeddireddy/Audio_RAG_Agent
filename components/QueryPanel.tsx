@@ -13,6 +13,26 @@ function prettyName(filename: string): string {
   return filename.replace(/\.[^.]+$/, "");
 }
 
+// Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
+// human title ("The Attention Equation v3.mp3") for the raw-sources receipt.
+function cleanSourceName(path?: string): string {
+  if (!path) return "unknown source";
+  let name = path.split("/").pop() || path;
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    // leave as-is if it isn't valid percent-encoding
+  }
+  return name.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function fmtTime(s: number): string {
+  if (!Number.isFinite(s) || s < 0) return "0:00";
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60);
+  return `${m}:${sec.toString().padStart(2, "0")}`;
+}
+
 export default function QueryPanel({
   library,
   onReingest,
@@ -37,6 +57,10 @@ export default function QueryPanel({
   const [audioUrl, setAudioUrl] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [curTime, setCurTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [showRaw, setShowRaw] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const ctxRef = useRef<AudioContext | null>(null);
@@ -109,6 +133,30 @@ export default function QueryPanel({
     }
   }
 
+  // Custom transport: drive the hidden <audio> directly so the native chrome
+  // never appears (it broke the brutalist look).
+  function togglePlay() {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) {
+      ensureAnalyser();
+      ctxRef.current?.resume().catch(() => {});
+      el.play().catch(() => {});
+    } else {
+      el.pause();
+    }
+  }
+
+  // Click anywhere on the lego timeline to scrub — replaces the native bar.
+  function seekFromTimeline(e: React.MouseEvent<HTMLDivElement>) {
+    const el = audioRef.current;
+    if (!el || !audioUrl || !el.duration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    el.currentTime = frac * el.duration;
+    setProgress(frac);
+  }
+
   async function run(override?: string) {
     const q = (override ?? query).trim();
     if (!q || busy) return;
@@ -128,6 +176,10 @@ export default function QueryPanel({
     setRawClips(0);
     setAnswer("");
     setProgress(0);
+    setPlaying(false);
+    setCurTime(0);
+    setDuration(0);
+    setShowRaw(false);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl("");
     onMode?.("searching");
@@ -331,8 +383,11 @@ export default function QueryPanel({
             )}
           </div>
 
-          {/* Lego-block timeline with a scrubbing playhead. */}
-          <div className="timeline">
+          {/* Lego-block timeline with a scrubbing playhead. Click to seek. */}
+          <div
+            className={`timeline ${audioUrl ? "seekable" : ""}`}
+            onClick={audioUrl ? seekFromTimeline : undefined}
+          >
             {clips.map((c, i) => (
               <motion.div
                 key={`${c.file_path}-${c.start_time_ms}-${i}`}
@@ -361,46 +416,96 @@ export default function QueryPanel({
         </div>
       )}
 
-      {/* Kept permanently mounted so the analyser (createMediaElementSource can
-          only run once per element) stays valid across repeated queries. */}
-      <div style={{ marginTop: 14, display: audioUrl ? "block" : "none" }}>
-        <audio
-          ref={audioRef}
-          controls
-          src={audioUrl || undefined}
-          onPlay={() => {
-            ensureAnalyser();
-            ctxRef.current?.resume().catch(() => {});
-            onMode?.("playing");
-          }}
-          onPause={() => onMode?.("idle")}
-          onEnded={() => {
-            onMode?.("idle");
-            setProgress(0);
-          }}
-          onTimeUpdate={(e) => {
-            const el = e.currentTarget;
-            if (el.duration) setProgress(el.currentTime / el.duration);
-          }}
-        />
-        <br />
-        <a className="dl" href={audioUrl || "#"} download="highlight_reel.wav">
-          ↓ Download highlight_reel.wav
-        </a>
-      </div>
+      {/* Custom brutalist transport replaces the native player. The <audio> is
+          kept permanently mounted but visually hidden so the analyser
+          (createMediaElementSource runs once per element) stays valid across
+          repeated queries. */}
+      {audioUrl && (
+        <div className="transport">
+          <motion.button
+            className="primary transport-btn"
+            onClick={togglePlay}
+            whileHover={{ scale: 1.05, rotate: -1 }}
+            whileTap={{ scale: 0.94 }}
+          >
+            {playing ? "❚❚ PAUSE" : "▶ PLAY"}
+          </motion.button>
+          <span className="transport-time">
+            {fmtTime(curTime)} / {fmtTime(duration)}
+          </span>
+          <a className="dl transport-dl" href={audioUrl} download="highlight_reel.wav">
+            ↓ WAV
+          </a>
+        </div>
+      )}
+      <audio
+        ref={audioRef}
+        src={audioUrl || undefined}
+        style={{ display: "none" }}
+        onPlay={() => {
+          ensureAnalyser();
+          ctxRef.current?.resume().catch(() => {});
+          setPlaying(true);
+          onMode?.("playing");
+        }}
+        onPause={() => {
+          setPlaying(false);
+          onMode?.("idle");
+        }}
+        onEnded={() => {
+          setPlaying(false);
+          onMode?.("idle");
+          setProgress(0);
+          setCurTime(0);
+        }}
+        onLoadedMetadata={(e) => setDuration(e.currentTarget.duration || 0)}
+        onTimeUpdate={(e) => {
+          const el = e.currentTarget;
+          setCurTime(el.currentTime);
+          if (el.duration) setProgress(el.currentTime / el.duration);
+        }}
+      />
 
       {clips.length > 0 && hits.length > 0 && (
         <div style={{ marginTop: 18 }}>
-          <div className="muted">From these moments:</div>
-          {hits.map((h, i) => (
-            <div className="hit" key={h._id ?? i}>
-              <div>{h.child_text}</div>
-              <div className="meta">
-                score {h._score?.toFixed(3)} · {h.start_time_ms}–{h.end_time_ms}ms ·{" "}
-                {h.file_path?.split("/").pop()}
-              </div>
-            </div>
-          ))}
+          <button
+            type="button"
+            className="raw-toggle"
+            onClick={() => setShowRaw((v) => !v)}
+            aria-expanded={showRaw}
+          >
+            <span className="raw-caret">{showRaw ? "▾" : "▸"}</span>
+            Inspect raw sources ({hits.length})
+          </button>
+
+          <AnimatePresence initial={false}>
+            {showRaw && (
+              <motion.div
+                key="raw"
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ type: "spring", stiffness: 320, damping: 30 }}
+                style={{ overflow: "hidden" }}
+              >
+                {hits.map((h, i) => {
+                  const pct = Math.round((h._score ?? 0) * 100);
+                  return (
+                    <div className="hit" key={h._id ?? i}>
+                      <div>{h.child_text}</div>
+                      <div className="meta">
+                        <span className="match-badge">{pct}% match</span>
+                        <span className="hit-name">{cleanSourceName(h.file_path)}</span>
+                        <span className="hit-time">
+                          {fmtTime(h.start_time_ms / 1000)}–{fmtTime(h.end_time_ms / 1000)}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       )}
     </div>
