@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { AnimatePresence, motion } from "framer-motion";
-import Uploader from "@/components/Uploader";
-import QueryPanel from "@/components/QueryPanel";
+import { motion } from "framer-motion";
+import Dropzone from "@/components/Dropzone";
+import CapsuleStack from "@/components/CapsuleStack";
+import SearchPanel from "@/components/SearchPanel";
+import Vault from "@/components/Vault";
 import type { LibraryFile } from "@/lib/types";
 import type { BlobMode } from "@/components/ReactiveBlob";
 
@@ -12,8 +14,9 @@ import type { BlobMode } from "@/components/ReactiveBlob";
 const ReactiveBlob = dynamic(() => import("@/components/ReactiveBlob"), { ssr: false });
 
 export default function Home() {
-  const [tab, setTab] = useState<"upload" | "query">("upload");
   const [library, setLibrary] = useState<LibraryFile[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [vaultOpen, setVaultOpen] = useState(false);
   const [blobMode, setBlobMode] = useState<BlobMode>("idle");
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -48,12 +51,29 @@ export default function Home() {
     };
   }, [processing]);
 
+  // Auto-select files as they become ready; drop ids that vanish from the library.
+  useEffect(() => {
+    setSelected((prev) => {
+      const readyIds = library.filter((f) => f.status === "ready").map((f) => f.file_id);
+      const kept = prev.filter((id) => readyIds.includes(id));
+      const known = new Set(kept);
+      const additions = readyIds.filter((id) => !known.has(id));
+      return [...kept, ...additions];
+    });
+  }, [library]);
+
   const onIndexed = useCallback((entry: LibraryFile) => {
     setLibrary((prev) => [...prev.filter((f) => f.file_id !== entry.file_id), entry]);
   }, []);
 
+  const toggleSelected = useCallback((fileId: string) => {
+    setSelected((prev) =>
+      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
+    );
+  }, []);
+
   const deleteFile = useCallback(async (fileId: string) => {
-    // Optimistically drop it so the card animates out immediately.
+    // Optimistically drop it so the capsule/vault row animates out immediately.
     setLibrary((prev) => prev.filter((f) => f.file_id !== fileId));
     try {
       const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`, { method: "DELETE" });
@@ -85,72 +105,68 @@ export default function Home() {
         const data = await res.json();
         if (data.entry) onIndexed(data.entry as LibraryFile);
       } catch {
-        onIndexed({ ...file, status: "failed", error: "Could not start re-indexing." });
+        onIndexed({ ...file, status: "failed", error: "Couldn't start re-indexing." });
       }
     },
     [onIndexed]
   );
+
+  const hasFiles = library.length > 0;
 
   return (
     <>
       <ReactiveBlob mode={blobMode} analyser={analyser} />
 
       <main className="wrap">
-        <motion.h1
-          className="title"
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 260, damping: 18 }}
-        >
-          Audio RAG <span className="spark">Auto-Editor</span>
-        </motion.h1>
-        <p className="subtitle">
-          Drop audio, ask a question, and get a written answer plus a seamless highlight reel
-          stitched from the most relevant moments — powered by Groq Whisper, Pinecone &amp; Gemini.
-        </p>
+        <div className="topbar">
+          <motion.h1
+            className="title"
+            initial={{ opacity: 0, y: -12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 260, damping: 18 }}
+          >
+            Audio RAG <span className="spark">Auto-Editor</span>
+          </motion.h1>
 
-        <div className="tabs">
-          {(["upload", "query"] as const).map((t) => (
-            <motion.button
-              key={t}
-              className={`tab ${tab === t ? "active" : ""}`}
-              onClick={() => setTab(t)}
-              whileHover={{ scale: 1.05, rotate: -1 }}
-              whileTap={{ scale: 0.96 }}
-            >
-              {t === "upload" ? "Upload & Index" : `Query${library.length ? ` (${library.length})` : ""}`}
-            </motion.button>
-          ))}
+          <motion.button
+            className="vault-btn"
+            onClick={() => setVaultOpen(true)}
+            whileHover={{ scale: 1.06, rotate: -2 }}
+            whileTap={{ scale: 0.94 }}
+            title="Open the Vault"
+          >
+            📼 Vault{hasFiles ? ` (${library.length})` : ""}
+          </motion.button>
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={tab}
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ type: "spring", stiffness: 300, damping: 24 }}
-          >
-            {tab === "upload" ? (
-              <Uploader library={library} onIndexed={onIndexed} />
-            ) : (
-              <QueryPanel
-                library={library}
-                onReingest={reingest}
-                onMode={setBlobMode}
-                onAnalyser={setAnalyser}
-                onDelete={deleteFile}
-              />
-            )}
-          </motion.div>
-        </AnimatePresence>
+        <p className="subtitle">
+          Drop your audio, ask a question, and get a written answer plus a seamless highlight reel
+          stitched from the moments that matter.
+        </p>
+
+        <Dropzone compact={hasFiles} onIndexed={onIndexed} />
+
+        <CapsuleStack
+          library={library}
+          selected={selected}
+          onToggle={toggleSelected}
+          onReingest={reingest}
+        />
+
+        <SearchPanel
+          library={library}
+          selected={selected}
+          onMode={setBlobMode}
+          onAnalyser={setAnalyser}
+        />
 
         <p className="muted" style={{ marginTop: 24 }}>
-          Tip: index your audio first, then switch to the Query tab. Pick which sources to search,
-          then ask. Audio is stitched locally in your browser, so nothing is re-uploaded to make
-          the reel.
+          Tip: tap a file to add or remove it from your search. Audio is stitched right in your
+          browser, so nothing is re-uploaded to make the reel.
         </p>
       </main>
+
+      <Vault open={vaultOpen} onClose={() => setVaultOpen(false)} library={library} onDelete={deleteFile} />
     </>
   );
 }

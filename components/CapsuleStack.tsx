@@ -1,0 +1,79 @@
+"use client";
+
+import { AnimatePresence, motion } from "framer-motion";
+import type { LibraryFile } from "@/lib/types";
+
+function prettyName(filename: string): string {
+  let name = filename.replace(/\.[^.]+$/, "");
+  try {
+    name = decodeURIComponent(name);
+  } catch {
+    // leave as-is if it isn't valid percent-encoding
+  }
+  return name.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// The capsule stack: every indexed file as a chunky, tappable pill. Tapping a
+// ready pill toggles whether it's searched; processing/failed pills show their
+// own state and can't be selected.
+export default function CapsuleStack({
+  library,
+  selected,
+  onToggle,
+  onReingest,
+}: {
+  library: LibraryFile[];
+  selected: string[];
+  onToggle: (fileId: string) => void;
+  onReingest?: (file: LibraryFile) => void;
+}) {
+  if (library.length === 0) return null;
+  const sel = new Set(selected);
+
+  return (
+    <div className="capsules">
+      <AnimatePresence initial={false}>
+        {library.map((f) => {
+          const ready = f.status === "ready";
+          const active = ready && sel.has(f.file_id);
+          const cls = ready ? (active ? "active" : "inactive") : f.status; // "processing" | "failed"
+          return (
+            <motion.button
+              type="button"
+              key={f.file_id}
+              className={`capsule ${cls}`}
+              onClick={() => ready && onToggle(f.file_id)}
+              disabled={!ready}
+              layout
+              initial={{ opacity: 0, scale: 0.7, y: -8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.6, x: 24 }}
+              transition={{ type: "spring", stiffness: 320, damping: 22 }}
+              whileHover={ready ? { scale: 1.04, rotate: -1 } : undefined}
+              whileTap={ready ? { scale: 0.96 } : undefined}
+              title={f.filename}
+            >
+              {ready && <span className="capsule-dot">{active ? "●" : "○"}</span>}
+              <span className="capsule-name">{prettyName(f.filename)}</span>
+              {ready && <span className="capsule-meta">{f.children} bits</span>}
+              {f.status === "processing" && <span className="capsule-state">Listening &amp; Indexing…</span>}
+              {f.status === "failed" && (
+                <span
+                  className="capsule-retry"
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onReingest?.(f);
+                  }}
+                >
+                  ⚠ retry
+                </span>
+              )}
+            </motion.button>
+          );
+        })}
+      </AnimatePresence>
+    </div>
+  );
+}

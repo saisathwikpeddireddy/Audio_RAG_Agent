@@ -78,36 +78,133 @@ body {
   line-height: 1.5;
 }
 
-/* ---- Tabs ---- */
-.tabs {
+/* ---- Top bar (title + vault access) ---- */
+.topbar {
   display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
 }
 
-.tab {
+.vault-btn {
+  flex: none;
+  margin-top: 4px;
   font-family: var(--font-display), sans-serif;
-  padding: 9px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 9px 15px;
   border-radius: 12px;
   border: var(--border);
   background: var(--surface);
   color: var(--ink);
   cursor: pointer;
-  font-size: 14px;
-  font-weight: 700;
   box-shadow: var(--shadow-sm);
-  transition: transform 0.08s ease, box-shadow 0.08s ease;
+  white-space: nowrap;
 }
 
-.tab:hover {
-  transform: translate(-1px, -1px);
+.vault-btn:hover {
+  background: var(--yellow);
   box-shadow: var(--shadow);
 }
 
-.tab.active {
-  background: var(--cyan);
+/* ---- Capsule stack (indexed files as selectable pills) ---- */
+.capsules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 16px 0 18px;
+}
+
+.capsule {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 15px;
+  border-radius: 999px;
+  border: var(--border);
+  background: var(--surface);
   color: var(--ink);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.12s ease,
+    filter 0.12s ease, opacity 0.12s ease;
+}
+
+/* Active = in the search. Bright, solid, hard shadow. */
+.capsule.active {
+  background: var(--cyan);
   box-shadow: var(--shadow);
+}
+
+/* Inactive = indexed but excluded. Faded + flattened. */
+.capsule.inactive {
+  background: var(--surface);
+  filter: grayscale(0.7);
+  opacity: 0.6;
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.capsule.inactive:hover {
+  opacity: 0.85;
+  filter: grayscale(0.2);
+}
+
+/* Still indexing — animated candy-stripe, not selectable. */
+.capsule.processing {
+  cursor: default;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(6, 182, 212, 0.22) 0 10px,
+    rgba(255, 255, 255, 0) 10px 20px
+  );
+  background-size: 28px 28px;
+  animation: stripes 0.65s linear infinite;
+}
+
+.capsule.failed {
+  cursor: default;
+  background: var(--pink);
+  color: #fff;
+}
+
+.capsule:disabled {
+  pointer-events: none;
+}
+
+.capsule-dot {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.capsule-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capsule-meta {
+  font-family: var(--font-mono), monospace;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.7;
+}
+
+.capsule-state {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.capsule-retry {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
 }
 
 /* ---- Cards / panels ---- */
@@ -142,6 +239,7 @@ strong {
 
 /* ---- Drop target ---- */
 .drop {
+  position: relative;
   border: 2.5px dashed var(--ink);
   border-radius: var(--radius);
   padding: 40px;
@@ -149,7 +247,34 @@ strong {
   color: var(--muted);
   cursor: pointer;
   background: #fffdf8;
-  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease,
+    padding 0.18s ease;
+}
+
+/* Shrinks once there are files, so the capsules + search take center stage. */
+.drop-compact {
+  padding: 16px 40px;
+}
+
+.drop-big-sm {
+  font-size: 15px;
+}
+
+/* Tone selector tucked into the corner of the dropzone. */
+.drop-tone {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drop-tone select {
+  width: auto;
+  padding: 5px 8px;
+  font-size: 12px;
+  box-shadow: 1px 1px 0 var(--ink);
 }
 
 .drop.hover {
@@ -789,4 +914,86 @@ a.dl {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ---- The Vault (deletion drawer) ---- */
+.vault-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(20, 20, 20, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.vault {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(420px, 90vw);
+  background: var(--bg);
+  border-left: var(--border);
+  box-shadow: -7px 0 0 var(--ink);
+  padding: 24px 22px;
+  overflow-y: auto;
+}
+
+.vault-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.vault-head strong {
+  font-size: 20px;
+}
+
+.vault-close {
+  border: var(--border);
+  background: var(--surface);
+  border-radius: 10px;
+  width: 34px;
+  height: 34px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+
+.vault-close:hover {
+  background: var(--pink);
+  color: #fff;
+}
+
+.vault-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-top: 10px;
+  border: var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.vault-info {
+  min-width: 0;
+}
+
+.vault-name {
+  font-family: var(--font-display), sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.vault-meta {
+  margin-top: 3px;
+  font-size: 11px;
 }

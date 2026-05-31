@@ -3,18 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
-import HoldToDelete from "@/components/HoldToDelete";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 import type { BlobMode } from "@/components/ReactiveBlob";
 
 const BLOCK_COLORS = ["#ec4899", "#06b6d4", "#eab308"];
 
-function prettyName(filename: string): string {
-  return filename.replace(/\.[^.]+$/, "");
-}
-
 // Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
-// human title ("The Attention Equation v3.mp3") for the raw-sources receipt.
+// human title ("The Attention Equation v3") for the sources receipt.
 function cleanSourceName(path?: string): string {
   if (!path) return "unknown source";
   let name = path.split("/").pop() || path;
@@ -23,7 +18,11 @@ function cleanSourceName(path?: string): string {
   } catch {
     // leave as-is if it isn't valid percent-encoding
   }
-  return name.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
+  return name
+    .replace(/\.[^.]+$/, "")
+    .replace(/[_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function fmtTime(s: number): string {
@@ -33,18 +32,16 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-export default function QueryPanel({
+export default function SearchPanel({
   library,
-  onReingest,
+  selected,
   onMode,
   onAnalyser,
-  onDelete,
 }: {
   library: LibraryFile[];
-  onReingest?: (file: LibraryFile) => void;
+  selected: string[];
   onMode?: (m: BlobMode) => void;
   onAnalyser?: (a: AnalyserNode | null) => void;
-  onDelete?: (fileId: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,7 +52,6 @@ export default function QueryPanel({
   const [rawClips, setRawClips] = useState(0);
   const [answer, setAnswer] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
-  const [selected, setSelected] = useState<string[]>([]);
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [curTime, setCurTime] = useState(0);
@@ -68,7 +64,7 @@ export default function QueryPanel({
 
   const readyCount = useMemo(() => library.filter((f) => f.status === "ready").length, [library]);
 
-  // Tear down audio graph + reset the blob when leaving the tab.
+  // Tear down audio graph + reset the blob when this panel unmounts.
   useEffect(() => {
     return () => {
       onMode?.("idle");
@@ -78,16 +74,7 @@ export default function QueryPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    setSelected((prev) => {
-      const readyIds = library.filter((f) => f.status === "ready").map((f) => f.file_id);
-      const kept = prev.filter((id) => readyIds.includes(id));
-      const known = new Set(kept);
-      const additions = readyIds.filter((id) => !known.has(id));
-      return [...kept, ...additions];
-    });
-  }, [library]);
-
+  // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
     const sel = new Set(selected);
     const seen = new Set<string>();
@@ -104,14 +91,6 @@ export default function QueryPanel({
     }
     return out.slice(0, 6);
   }, [library, selected]);
-
-  function toggle(fileId: string) {
-    setSelected((prev) =>
-      prev.includes(fileId) ? prev.filter((id) => id !== fileId) : [...prev, fileId]
-    );
-  }
-  const selectAll = () => setSelected(library.filter((f) => f.status === "ready").map((f) => f.file_id));
-  const selectNone = () => setSelected([]);
 
   // Lazily route the <audio> element through an analyser so the blob can react.
   function ensureAnalyser() {
@@ -161,11 +140,11 @@ export default function QueryPanel({
     const q = (override ?? query).trim();
     if (!q || busy) return;
     if (readyCount === 0) {
-      setError("No sources are ready to search yet — index audio in the Upload tab first.");
+      setError("Add some audio above first, then ask away.");
       return;
     }
     if (selected.length === 0) {
-      setError("Select at least one source to search.");
+      setError("Select at least one audio file above to start searching.");
       return;
     }
 
@@ -185,7 +164,7 @@ export default function QueryPanel({
     onMode?.("searching");
 
     try {
-      setStage("Searching Pinecone & asking the editor…");
+      setStage("Digging through your audio…");
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -203,11 +182,11 @@ export default function QueryPanel({
       if (!data.clips?.length) {
         setStage("");
         onMode?.("idle");
-        if (!data.answer) throw new Error("The editor found no usable clips for this query.");
+        if (!data.answer) throw new Error("Couldn't find a clear moment for that — try rephrasing?");
         return;
       }
 
-      setStage("Stitching audio in your browser…");
+      setStage("Cutting your highlight reel…");
       const { buffer } = await stitchClips(data.clips, 50);
       const wav = audioBufferToWav(buffer);
       setAudioUrl(URL.createObjectURL(wav));
@@ -224,88 +203,10 @@ export default function QueryPanel({
 
   return (
     <div className={`card ${busy ? "pulsing" : ""}`}>
-      <strong>2 · Ask for a highlight reel</strong>
-
-      {library.length === 0 ? (
-        <div className="muted" style={{ marginTop: 12 }}>
-          No audio indexed yet — drop some in the <b>Upload &amp; Index</b> tab first.
-        </div>
-      ) : (
-        <div className="sources">
-          <div className="sources-head">
-            <span className="muted">
-              Sources ({selected.length}/{readyCount} ready)
-            </span>
-            <div className="row" style={{ gap: 12 }}>
-              <button className="link" onClick={selectAll} disabled={busy || readyCount === 0}>
-                Select all
-              </button>
-              <button className="link" onClick={selectNone} disabled={busy}>
-                Clear
-              </button>
-            </div>
-          </div>
-          <AnimatePresence initial={false}>
-            {library.map((f) => {
-              const ready = f.status === "ready";
-              return (
-                <motion.label
-                  className={`source ${ready ? "" : "source-disabled"}`}
-                  key={f.file_id}
-                  layout
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0, scale: 0.6, x: 30 }}
-                  transition={{ type: "spring", stiffness: 320, damping: 26 }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={ready && selected.includes(f.file_id)}
-                    onChange={() => ready && toggle(f.file_id)}
-                    disabled={busy || !ready}
-                  />
-                  <span className="source-name" title={f.filename}>
-                    {prettyName(f.filename)}
-                  </span>
-                  {f.status === "ready" && (
-                    <span className="muted source-meta">
-                      {f.children} chunks · {f.audio_type}
-                    </span>
-                  )}
-                  {f.status === "processing" && <span className="tag tag-proc">⏳ indexing</span>}
-                  {f.status === "failed" && (
-                    <>
-                      <span className="tag tag-fail" title={f.error}>
-                        ⚠ failed
-                      </span>
-                      {onReingest && (
-                        <button
-                          className="link"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            onReingest(f);
-                          }}
-                          disabled={busy}
-                        >
-                          Retry
-                        </button>
-                      )}
-                    </>
-                  )}
-                  {onDelete && (
-                    <HoldToDelete onConfirm={() => onDelete(f.file_id)} disabled={busy} />
-                  )}
-                </motion.label>
-              );
-            })}
-          </AnimatePresence>
-        </div>
-      )}
-
-      <div className="row" style={{ marginTop: 16 }}>
+      <div className="row">
         <input
           type="text"
-          placeholder='ask anything… e.g. "what did they say about the roadmap?"'
+          placeholder="What are you looking for? e.g. “What did we decide about pricing?”"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && run()}
@@ -367,9 +268,7 @@ export default function QueryPanel({
       {clips.length > 0 && (
         <div style={{ marginTop: 18 }}>
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <div className="muted">
-              {clips.length} continuous segment(s)
-            </div>
+            <div className="muted">{clips.length} continuous segment(s)</div>
             {rawClips > clips.length && (
               <motion.div
                 className="tag"
@@ -475,7 +374,7 @@ export default function QueryPanel({
             aria-expanded={showRaw}
           >
             <span className="raw-caret">{showRaw ? "▾" : "▸"}</span>
-            Inspect raw sources ({hits.length})
+            Inspect sources ({hits.length})
           </button>
 
           <AnimatePresence initial={false}>
