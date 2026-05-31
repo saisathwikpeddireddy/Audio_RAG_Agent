@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
+import type { Word } from "@/lib/groq";
 
 // Must match the capsule accents in CapsuleStack, keyed by the file's position
 // in the library — so a block's color is a legend back to its source capsule.
@@ -11,16 +12,14 @@ const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
 const FALLBACK_COLOR = "#9ca3af";
 
 // Hard silence (ms) injected between clips. Must match the value passed to
-// stitchClips so the teleprompter's clip windows line up with the rendered audio.
+// stitchClips so the timeline scrub math lines up with the rendered audio.
 const GAP_MS = 400;
 
 // Below this rendered width (px) a timeline block hides its timestamp and shows
 // only the file legend key, so text never overflows a narrow block's borders.
 const FULL_LABEL_MIN_WIDTH = 80;
 
-type ClipWindow = { start: number; end: number };
-
-// Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
+type ClipWindow = { start: number; end: number }; ("…/The%20Attention_Equation%20v3.mp3") into a clean,
 // human title ("The Attention Equation v3") for the sources receipt + timeline.
 function cleanSourceName(path?: string): string {
   if (!path) return "unknown source";
@@ -120,47 +119,72 @@ const TransportClock = memo(function TransportClock({
   );
 });
 
-// The teleprompter snaps to the transcript of the clip currently playing. Owns
-// its own high-frequency time state so the rest of the tree stays still. It keys
-// off currentTime (not the play/pause flag) so it keeps showing the active line
-// while paused — users pause specifically to read.
+// Karaoke teleprompter: maps over the JIT word-level transcript of the stitched
+// reel (from Groq Whisper) and highlights the word whose [start, end) window
+// contains the current playback time. Owns its own high-frequency time state so
+// the rest of the tree stays still, and auto-scrolls to keep the active word
+// in view. Persists the highlight on pause (keys off currentTime, not playing).
 const Teleprompter = memo(function Teleprompter({
   audioRef,
   playing,
-  clips,
-  clipWindows,
-  transcriptFor,
+  words,
+  loading,
 }: {
   audioRef: React.RefObject<HTMLAudioElement>;
   playing: boolean;
-  clips: Clip[];
-  clipWindows: ClipWindow[];
-  transcriptFor: (clip: Clip) => string;
+  words: Word[];
+  loading: boolean;
 }) {
   const time = usePlaybackTime(audioRef, playing);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const activeRef = useRef<HTMLSpanElement>(null);
 
-  // Find the clip whose reel-window [startInReel, endInReel) contains the current
-  // playback time. While inside the 400ms silent gap after a clip, retain that
-  // clip's line so the text doesn't flicker to the placeholder between segments.
-  let idx = -1;
-  for (let i = 0; i < clipWindows.length; i++) {
-    const w = clipWindows[i];
-    if (time >= w.start && time < w.end) {
-      idx = i;
-      break;
+  // Index of the word whose window contains `time`. -1 before the first word /
+  // inside inter-word gaps / after the reel has ended (time resets to 0).
+  let activeIdx = -1;
+  if (time > 0) {
+    for (let i = 0; i < words.length; i++) {
+      if (time >= words[i].start && time < words[i].end) {
+        activeIdx = i;
+        break;
+      }
     }
-    if (time >= w.start) idx = i; // in the gap just after clip i → keep showing it
   }
 
-  // Placeholder ONLY at the very start (currentTime === 0) or after the reel has
-  // fully ended (usePlaybackTime resets time to 0 on "ended"). A pause mid-reel
-  // leaves time > 0, so the active transcript stays on screen.
-  const text =
-    time > 0 && idx >= 0 && idx < clips.length
-      ? transcriptFor(clips[idx]) || "…"
-      : "Hit play to read along…";
+  // Smoothly keep the active word centered when the transcript overflows.
+  useEffect(() => {
+    const el = activeRef.current;
+    const box = containerRef.current;
+    if (!el || !box) return;
+    const elCenter = el.offsetTop + el.offsetHeight / 2;
+    box.scrollTo({ top: elCenter - box.clientHeight / 2, behavior: "smooth" });
+  }, [activeIdx]);
 
-  return <div className="teleprompter">{text}</div>;
+  if (loading) {
+    return (
+      <div className="teleprompter">
+        <span className="spin" /> Transcribing the reel for read-along…
+      </div>
+    );
+  }
+
+  if (!words.length) {
+    return <div className="teleprompter">Hit play to read along…</div>;
+  }
+
+  return (
+    <div className="teleprompter karaoke" ref={containerRef}>
+      {words.map((w, i) => (
+        <span
+          key={i}
+          ref={i === activeIdx ? activeRef : undefined}
+          className={`kword${i === activeIdx ? " active" : ""}`}
+        >
+          {w.word}
+        </span>
+      ))}
+    </div>
+  );
 });
 
 // A single lego-block on the timeline. Memoized so the 60fps playback leaves it
@@ -287,6 +311,8 @@ export default function SearchPanel({
   const [audioUrl, setAudioUrl] = useState("");
   const [playing, setPlaying] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
+  const [reelTranscript, setReelTranscript] = useState<Word[]>([]);
+  const [transcribing, setTranscribing] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
 
@@ -327,23 +353,6 @@ export default function SearchPanel({
     },
     [hits]
   );
-
-  // Where each clip sits on the stitched output ("reel") timeline, in seconds.
-  // The master buffer lays clips back-to-back with GAP_MS of silence between
-  // them, so for clip i:
-  //   startInReel = Σ(durations of clips 0..i-1) + i * (GAP_MS / 1000)
-  //   endInReel   = startInReel + thisClipDuration
-  // The teleprompter maps <audio>.currentTime into [startInReel, endInReel).
-  const clipWindows = useMemo<ClipWindow[]>(() => {
-    const gap = GAP_MS / 1000;
-    let prevDurations = 0;
-    return clips.map((c, i) => {
-      const dur = Math.max(0, (c.end_time_ms - c.start_time_ms) / 1000);
-      const start = prevDurations + i * gap;
-      prevDurations += dur;
-      return { start, end: start + dur };
-    });
-  }, [clips]);
 
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
@@ -425,6 +434,8 @@ export default function SearchPanel({
     setAnswer("");
     setPlaying(false);
     setShowRaw(false);
+    setReelTranscript([]);
+    setTranscribing(false);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl("");
 
@@ -456,6 +467,24 @@ export default function SearchPanel({
       const wav = audioBufferToWav(buffer);
       setAudioUrl(URL.createObjectURL(wav));
       setStage("");
+
+      // JIT karaoke: send the freshly-stitched reel to Groq Whisper for
+      // word-level timestamps. Fire-and-forget so playback isn't blocked — the
+      // teleprompter shows a "transcribing…" state until the words arrive.
+      setTranscribing(true);
+      fetch("/api/transcribe-reel", {
+        method: "POST",
+        headers: { "Content-Type": "audio/wav" },
+        body: wav,
+      })
+        .then(async (r) => {
+          const d = await r.json();
+          if (r.ok && Array.isArray(d.words)) setReelTranscript(d.words as Word[]);
+        })
+        .catch(() => {
+          // Non-fatal: the reel still plays; the teleprompter just stays idle.
+        })
+        .finally(() => setTranscribing(false));
     } catch (e) {
       setError((e as Error).message);
       setStage("");
@@ -555,14 +584,13 @@ export default function SearchPanel({
             {audioUrl && <Playhead audioRef={audioRef} playing={playing} />}
           </div>
 
-          {/* Teleprompter: snaps to the transcript of the clip currently playing
-              so you can read along; idle until playback starts. */}
+          {/* Karaoke teleprompter: highlights the word currently being spoken,
+              from a JIT word-level transcription of the stitched reel. */}
           <Teleprompter
             audioRef={audioRef}
             playing={playing}
-            clips={clips}
-            clipWindows={clipWindows}
-            transcriptFor={transcriptFor}
+            words={reelTranscript}
+            loading={transcribing}
           />
         </div>
       )}
