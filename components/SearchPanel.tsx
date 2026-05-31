@@ -68,6 +68,13 @@ export default function SearchPanel({
     return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
   }, [library]);
 
+  // 1-based file number (the capsule legend key) keyed by source blob URL.
+  const numberFor = useMemo(() => {
+    const byUrl = new Map<string, number>();
+    library.forEach((f, i) => byUrl.set(f.blob_url, i + 1));
+    return (filePath: string) => byUrl.get(filePath) ?? 0;
+  }, [library]);
+
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
     const sel = new Set(selected);
@@ -235,20 +242,7 @@ export default function SearchPanel({
 
       {clips.length > 0 && (
         <div style={{ marginTop: 18 }}>
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <div className="muted">{clips.length} continuous segment(s)</div>
-            {rawClips > clips.length && (
-              <motion.div
-                className="tag"
-                style={{ background: "var(--yellow)" }}
-                initial={{ scale: 0, rotate: -8 }}
-                animate={{ scale: 1, rotate: -2 }}
-                transition={{ type: "spring", stiffness: 400, damping: 12 }}
-              >
-                ✨ fused {rawClips} → {clips.length}
-              </motion.div>
-            )}
-          </div>
+          <div className="muted">{clips.length} clip(s)</div>
 
           {/* Lego-block timeline: each block's color maps to its source file's
               capsule (a legend), and shows only its timestamp. Click to seek. */}
@@ -268,13 +262,13 @@ export default function SearchPanel({
                 initial={{ scale: 0.4, y: -16, opacity: 0 }}
                 animate={{ scale: 1, y: 0, opacity: 1 }}
                 transition={{ type: "spring", stiffness: 320, damping: 14, delay: i * 0.07 }}
-                title={`${cleanSourceName(c.file_path)} | ${fmtTime(c.start_time_ms / 1000)} - ${fmtTime(
-                  c.end_time_ms / 1000
-                )}${(c.parts ?? 1) > 1 ? ` · fused ${c.parts}` : ""}`}
+                title={`[${numberFor(c.file_path)}] ${cleanSourceName(c.file_path)} | ${fmtTime(
+                  c.start_time_ms / 1000
+                )} - ${fmtTime(c.end_time_ms / 1000)}`}
               >
                 <span className="block-label">
-                  {(c.parts ?? 1) > 1 && <span className="block-fused">🔗{c.parts}</span>}
-                  {fmtTime(c.start_time_ms / 1000)} - {fmtTime(c.end_time_ms / 1000)}
+                  [{numberFor(c.file_path)}] {fmtTime(c.start_time_ms / 1000)} -{" "}
+                  {fmtTime(c.end_time_ms / 1000)}
                 </span>
               </motion.div>
             ))}

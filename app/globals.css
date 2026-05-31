@@ -194,6 +194,10 @@ body {
   white-space: nowrap;
 }
 
+.capsule-num {
+  font-family: var(--font-mono), monospace;
+}
+
 .capsule-meta {
   font-family: var(--font-mono), monospace;
   font-size: 10px;

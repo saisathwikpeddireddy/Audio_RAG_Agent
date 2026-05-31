@@ -57,8 +57,9 @@ export default function CapsuleStack({
               title={f.filename}
             >
               {ready && <span className="capsule-icon">{active ? "✓" : "+"}</span>}
-              <span className="capsule-name">{prettyName(f.filename)}</span>
-              {ready && <span className="capsule-meta">{f.children} bits</span>}
+              <span className="capsule-name">
+                <span className="capsule-num">[{i + 1}]</span> {prettyName(f.filename)}
+              </span>
               {f.status === "processing" && <span className="capsule-state">Listening &amp; Indexing…</span>}
               {f.status === "failed" && (
                 <span
