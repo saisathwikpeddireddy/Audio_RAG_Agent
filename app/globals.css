@@ -812,23 +812,24 @@ a.dl {
   pointer-events: none;
 }
 
-/* Neubrutalist hover card on each timeline block: full timestamp, a transcript
-   preview, and a per-clip download. Sits flush above the block (no gap) so the
-   pointer can travel into it without dismissing the hover. */
+/* Neubrutalist hover card on each timeline block: full timestamp, the exact
+   chunk transcript, and a per-chunk download. A small leave-delay (handled in
+   JS) lets the pointer travel up into the card without dismissing it; the
+   margin-bottom keeps it visually clear of the block. */
 .hovercard {
   position: absolute;
   bottom: 100%;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 20;
+  z-index: 50;
   width: max-content;
-  max-width: 280px;
+  max-width: 300px;
   margin-bottom: 8px;
   padding: 10px 12px;
   background: #fff;
-  border: 2px solid var(--ink);
+  border: 2px solid #000;
   border-radius: 10px;
-  box-shadow: var(--shadow);
+  box-shadow: 4px 4px 0px #000;
   cursor: default;
 }
 
@@ -844,6 +845,8 @@ a.dl {
   font-size: 12px;
   line-height: 1.4;
   color: #333;
+  max-height: 160px;
+  overflow-y: auto;
 }
 
 .hovercard-dl {

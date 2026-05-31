@@ -121,7 +121,9 @@ const TransportClock = memo(function TransportClock({
 });
 
 // The teleprompter snaps to the transcript of the clip currently playing. Owns
-// its own high-frequency time state so the rest of the tree stays still.
+// its own high-frequency time state so the rest of the tree stays still. It keys
+// off currentTime (not the play/pause flag) so it keeps showing the active line
+// while paused — users pause specifically to read.
 const Teleprompter = memo(function Teleprompter({
   audioRef,
   playing,
@@ -137,17 +139,24 @@ const Teleprompter = memo(function Teleprompter({
 }) {
   const time = usePlaybackTime(audioRef, playing);
 
+  // Find the clip whose reel-window [startInReel, endInReel) contains the current
+  // playback time. While inside the 400ms silent gap after a clip, retain that
+  // clip's line so the text doesn't flicker to the placeholder between segments.
   let idx = -1;
-  if (playing && clipWindows.length) {
-    idx = 0;
-    for (let i = 0; i < clipWindows.length; i++) {
-      if (time >= clipWindows[i].start) idx = i;
-      else break;
+  for (let i = 0; i < clipWindows.length; i++) {
+    const w = clipWindows[i];
+    if (time >= w.start && time < w.end) {
+      idx = i;
+      break;
     }
+    if (time >= w.start) idx = i; // in the gap just after clip i → keep showing it
   }
 
+  // Placeholder ONLY at the very start (currentTime === 0) or after the reel has
+  // fully ended (usePlaybackTime resets time to 0 on "ended"). A pause mid-reel
+  // leaves time > 0, so the active transcript stays on screen.
   const text =
-    playing && idx >= 0 && idx < clips.length
+    time > 0 && idx >= 0 && idx < clips.length
       ? transcriptFor(clips[idx]) || "…"
       : "Hit play to read along…";
 
@@ -178,6 +187,9 @@ const TimelineBlock = memo(function TimelineBlock({
   const blockRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [hover, setHover] = useState(false);
+  // Small grace delay on leave so the pointer can travel from the block into the
+  // card (which sits just above it) without the card vanishing mid-reach.
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const el = blockRef.current;
@@ -189,19 +201,30 @@ const TimelineBlock = memo(function TimelineBlock({
     return () => ro.disconnect();
   }, []);
 
+  useEffect(() => () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+  }, []);
+
+  const openCard = () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    setHover(true);
+  };
+  const scheduleClose = () => {
+    if (leaveTimer.current) clearTimeout(leaveTimer.current);
+    leaveTimer.current = setTimeout(() => setHover(false), 140);
+  };
+
   const startSec = clip.start_time_ms / 1000;
   const endSec = clip.end_time_ms / 1000;
   const showFull = width >= FULL_LABEL_MIN_WIDTH;
   const fullTime = `${fmtTime(startSec)} - ${fmtTime(endSec)}`;
-  const preview =
-    transcript.length > 160 ? `${transcript.slice(0, 160).trimEnd()}…` : transcript;
 
   return (
     <div
       className="block-wrap"
       style={{ flexGrow: Math.max(1, clip.end_time_ms - clip.start_time_ms), flexBasis: 0 }}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
+      onMouseEnter={openCard}
+      onMouseLeave={scheduleClose}
     >
       <motion.div
         ref={blockRef}
@@ -210,7 +233,6 @@ const TimelineBlock = memo(function TimelineBlock({
         initial={{ scale: 0.4, y: -16, opacity: 0 }}
         animate={{ scale: 1, y: 0, opacity: 1 }}
         transition={{ type: "spring", stiffness: 320, damping: 14, delay: index * 0.07 }}
-        title={`[${number}] ${sourceName} | ${fullTime}`}
       >
         <span className="block-label">{showFull ? `[${number}] ${fullTime}` : `[${number}]`}</span>
       </motion.div>
@@ -219,15 +241,17 @@ const TimelineBlock = memo(function TimelineBlock({
         {hover && (
           <motion.div
             className="hovercard"
+            onMouseEnter={openCard}
+            onMouseLeave={scheduleClose}
             initial={{ opacity: 0, y: 6, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 6, scale: 0.96 }}
             transition={{ type: "spring", stiffness: 420, damping: 28 }}
           >
             <div className="hovercard-time">
-              File {number} | {fullTime}
+              [{number}] {fullTime}
             </div>
-            {preview && <div className="hovercard-text">{preview}</div>}
+            {transcript && <div className="hovercard-text">{transcript}</div>}
             <button
               type="button"
               className="hovercard-dl"
@@ -236,7 +260,7 @@ const TimelineBlock = memo(function TimelineBlock({
                 onDownloadClip(clip, number);
               }}
             >
-              ↓ Download Clip
+              ↓ Download Chunk
             </button>
           </motion.div>
         )}
@@ -304,15 +328,19 @@ export default function SearchPanel({
     [hits]
   );
 
-  // Where each clip sits on the stitched output timeline (seconds), accounting
-  // for the hard silence gaps baked between clips. Maps playback time → clip.
+  // Where each clip sits on the stitched output ("reel") timeline, in seconds.
+  // The master buffer lays clips back-to-back with GAP_MS of silence between
+  // them, so for clip i:
+  //   startInReel = Σ(durations of clips 0..i-1) + i * (GAP_MS / 1000)
+  //   endInReel   = startInReel + thisClipDuration
+  // The teleprompter maps <audio>.currentTime into [startInReel, endInReel).
   const clipWindows = useMemo<ClipWindow[]>(() => {
     const gap = GAP_MS / 1000;
-    let cursor = 0;
-    return clips.map((c) => {
+    let prevDurations = 0;
+    return clips.map((c, i) => {
       const dur = Math.max(0, (c.end_time_ms - c.start_time_ms) / 1000);
-      const start = cursor;
-      cursor += dur + gap;
+      const start = prevDurations + i * gap;
+      prevDurations += dur;
       return { start, end: start + dur };
     });
   }, [clips]);
