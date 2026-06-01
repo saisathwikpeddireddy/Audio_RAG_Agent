@@ -19,7 +19,7 @@ const GAP_MS = 400;
 // only the file legend key, so text never overflows a narrow block's borders.
 const FULL_LABEL_MIN_WIDTH = 80;
 
-type ClipWindow = { start: number; end: number }; ("…/The%20Attention_Equation%20v3.mp3") into a clean,
+// Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
 // human title ("The Attention Equation v3") for the sources receipt + timeline.
 function cleanSourceName(path?: string): string {
   if (!path) return "unknown source";
