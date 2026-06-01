@@ -43,9 +43,31 @@ export interface StitchResult {
   durationSec: number;
 }
 
-// Render clips into one AudioBuffer, separated by `gapMs` of absolute silence.
-// The silence is baked into the rendered buffer, so the <audio> element's
-// currentTime/duration include the gaps and the visual playhead stays in sync.
+// Synthesize a soft "tape click" chapter marker at `atSec` on the offline
+// timeline: a brief 600Hz sine that fades 0.15 → ~0 in ~80ms, so the listener
+// hears a gentle blip at each clip→gap boundary signalling the jump to a new
+// timestamp. No external files — pure Web Audio. Returns its nodes for teardown.
+function scheduleTick(ctx: OfflineAudioContext, atSec: number): AudioNode[] {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = "sine";
+  osc.frequency.setValueAtTime(600, atSec);
+  // Quick exponential fade (can't target a true 0, so ramp to near-silence) —
+  // soft attack/decay keeps it from clicking.
+  gain.gain.setValueAtTime(0.0001, atSec);
+  gain.gain.exponentialRampToValueAtTime(0.15, atSec + 0.008);
+  gain.gain.exponentialRampToValueAtTime(0.0001, atSec + 0.08);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(atSec);
+  osc.stop(atSec + 0.1);
+  return [osc, gain];
+}
+
+// Render clips into one AudioBuffer, separated by `gapMs` of (near-)silence. A
+// soft synthesized tick marks each clip boundary inside the gap. The gap +
+// markers are baked into the rendered buffer, so the <audio> element's
+// currentTime/duration include them and the visual playhead stays in sync.
 export async function stitchClips(clips: Clip[], gapMs = 400): Promise<StitchResult> {
   if (!clips.length) throw new Error("No clips to stitch.");
 
@@ -81,16 +103,22 @@ export async function stitchClips(clips: Clip[], gapMs = 400): Promise<StitchRes
   );
 
   let cursor = 0; // seconds on the output timeline
-  const nodes: AudioBufferSourceNode[] = [];
-  slices.forEach((slice) => {
+  const nodes: AudioNode[] = [];
+  slices.forEach((slice, i) => {
     const node = offline.createBufferSource();
     node.buffer = slice.source;
     // No gain ramps — play each slice at full volume so consonants stay crisp.
     node.connect(offline.destination);
     node.start(cursor, slice.offsetSec, slice.durationSec);
     nodes.push(node);
+    const clipEnd = cursor + slice.durationSec;
+    // Drop a soft auditory chapter marker the instant this clip ends (start of
+    // the gap), except after the final clip — nothing follows it.
+    if (gapSec > 0 && i < slices.length - 1) {
+      nodes.push(...scheduleTick(offline, clipEnd));
+    }
     // Advance past this clip plus a hard gap of silence before the next one.
-    cursor += slice.durationSec + gapSec;
+    cursor = clipEnd + gapSec;
   });
 
   try {

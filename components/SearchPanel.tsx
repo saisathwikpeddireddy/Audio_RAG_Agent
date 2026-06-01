@@ -11,9 +11,11 @@ import type { Word } from "@/lib/groq";
 const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
 const FALLBACK_COLOR = "#9ca3af";
 
-// Hard silence (ms) injected between clips. Must match the value passed to
-// stitchClips so the timeline scrub math lines up with the rendered audio.
-const GAP_MS = 400;
+// Silence (ms) injected between clips — long enough for the brain to register a
+// context switch, with a soft synthesized tick marking each boundary. This is the
+// single source of truth: it's passed to stitchClips AND to alignWordsToReel, so
+// the rendered audio, the timeline scrub math, and the karaoke sync all agree.
+const GAP_MS = 2000;
 
 // Below this rendered width (px) a timeline block hides its timestamp and shows
 // only the file legend key, so text never overflows a narrow block's borders.

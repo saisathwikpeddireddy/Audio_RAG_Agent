@@ -811,20 +811,22 @@ a.dl {
   pointer-events: none;
 }
 
-/* Hover-reveal download overlay: a solid brutalist icon centered on the block.
-   Hidden (opacity 0 + pointer-events:none) until the block is hovered, so it
-   never intercepts the timeline's click-to-seek when idle. */
+/* Hover-reveal download overlay: a solid brutalist icon pinned to the block's
+   right edge (so it doesn't obscure the centered timestamp text). Opaque black
+   fill means it cleanly overlays the label on narrow blocks instead of muddling
+   it. Hidden (opacity 0 + pointer-events:none) until :hover, so it never
+   intercepts the timeline's click-to-seek when idle. */
 .block-dl {
   position: absolute;
   top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  right: 8px;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  font-size: 14px;
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
   line-height: 1;
   color: #fff;
   background: #000;
@@ -842,11 +844,11 @@ a.dl {
 }
 
 .block-dl:hover {
-  transform: translate(-50%, -50%) scale(1.12);
+  transform: translateY(-50%) scale(1.12);
 }
 
 .block-dl:active {
-  transform: translate(-50%, -50%) scale(0.92);
+  transform: translateY(-50%) scale(0.92);
 }
 
 /* The teleprompter: a chunky inset box that snaps to the currently-playing
