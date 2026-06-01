@@ -833,6 +833,14 @@ a.dl {
   cursor: default;
 }
 
+/* Header row: timestamp on the left, the download icon pinned top-right. */
+.hovercard-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
 .hovercard-time {
   font-family: var(--font-mono), monospace;
   font-size: 12px;
@@ -849,16 +857,20 @@ a.dl {
   overflow-y: auto;
 }
 
+/* Minimal chunky download icon in the card's top-right corner. */
 .hovercard-dl {
-  margin-top: 10px;
-  padding: 4px 10px;
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  font-weight: 700;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
+  line-height: 1;
   color: var(--ink);
   background: var(--yellow);
   border: 2px solid var(--ink);
-  border-radius: 8px;
+  border-radius: 7px;
   box-shadow: 2px 2px 0 var(--ink);
   cursor: pointer;
 }

@@ -43,6 +43,37 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
+// Groq Whisper transcribes only the *spoken* audio, so its word timestamps live
+// on a timeline with NO inter-clip silence. The master reel, however, bakes
+// GAP_MS of silence between clips. We realign by shifting each word forward by
+// one gap for every clip boundary it sits past.
+//
+// `clips` are concatenated in order; clip i's spoken span ends at the running
+// sum of prior durations (gap-free). A word landing after k such boundaries was
+// preceded by k gaps in the real audio, so add k * GAP_MS to its start/end.
+function alignWordsToReel(words: Word[], clips: Clip[], gapMs: number): Word[] {
+  const gapSec = gapMs / 1000;
+  // Cumulative spoken-end (no gaps) of clips 0..i — the boundaries Whisper "sees".
+  const spokenBoundaries: number[] = [];
+  let acc = 0;
+  for (const c of clips) {
+    acc += Math.max(0, (c.end_time_ms - c.start_time_ms) / 1000);
+    spokenBoundaries.push(acc);
+  }
+
+  return words.map((w) => {
+    // Count how many clip boundaries precede this word's start in spoken time.
+    // The last boundary is the end of the reel, so cap at clips.length - 1 gaps.
+    let gapsBefore = 0;
+    for (let i = 0; i < spokenBoundaries.length - 1; i++) {
+      if (w.start >= spokenBoundaries[i]) gapsBefore++;
+      else break;
+    }
+    const shift = gapsBefore * gapSec;
+    return { word: w.word, start: w.start + shift, end: w.end + shift };
+  });
+}
+
 // Subscribe to the hidden <audio>'s current time. Uses requestAnimationFrame
 // while playing for smoothness, and discrete media events (seek/load) when paused
 // so the playhead still tracks scrubbing. This lives ONLY inside leaf components,
@@ -272,20 +303,24 @@ const TimelineBlock = memo(function TimelineBlock({
             exit={{ opacity: 0, y: 6, scale: 0.96 }}
             transition={{ type: "spring", stiffness: 420, damping: 28 }}
           >
-            <div className="hovercard-time">
-              [{number}] {fullTime}
+            <div className="hovercard-head">
+              <div className="hovercard-time">
+                [{number}] {fullTime}
+              </div>
+              <button
+                type="button"
+                className="hovercard-dl"
+                title="Download this chunk as WAV"
+                aria-label="Download this chunk"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDownloadClip(clip, number);
+                }}
+              >
+                ⬇
+              </button>
             </div>
             {transcript && <div className="hovercard-text">{transcript}</div>}
-            <button
-              type="button"
-              className="hovercard-dl"
-              onClick={(e) => {
-                e.stopPropagation();
-                onDownloadClip(clip, number);
-              }}
-            >
-              ↓ Download Chunk
-            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -479,7 +514,10 @@ export default function SearchPanel({
       })
         .then(async (r) => {
           const d = await r.json();
-          if (r.ok && Array.isArray(d.words)) setReelTranscript(d.words as Word[]);
+          if (r.ok && Array.isArray(d.words)) {
+            // Realign the gap-free Whisper timestamps onto the padded reel.
+            setReelTranscript(alignWordsToReel(d.words as Word[], data.clips as Clip[], GAP_MS));
+          }
         })
         .catch(() => {
           // Non-fatal: the reel still plays; the teleprompter just stays idle.
@@ -520,7 +558,11 @@ export default function SearchPanel({
             <motion.button
               key={i}
               className="chip"
-              onClick={() => run(q)}
+              onClick={() => {
+                // Populate the search box (as if typed), then run the query.
+                setQuery(q);
+                run(q);
+              }}
               disabled={busy}
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
