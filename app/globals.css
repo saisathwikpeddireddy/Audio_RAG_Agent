@@ -760,11 +760,10 @@ a.dl {
   border-radius: 12px;
   background: #fffdf8;
   box-shadow: var(--shadow-sm);
-  overflow: visible;
+  overflow: hidden;
 }
 
-/* Each flex item on the timeline; carries the proportional flex-grow and
-   anchors the absolutely-positioned hover card. */
+/* Each flex item on the timeline; carries the proportional flex-grow. */
 .block-wrap {
   position: relative;
   display: flex;
@@ -812,77 +811,42 @@ a.dl {
   pointer-events: none;
 }
 
-/* Neubrutalist hover card on each timeline block: full timestamp, the exact
-   chunk transcript, and a per-chunk download. A small leave-delay (handled in
-   JS) lets the pointer travel up into the card without dismissing it; the
-   margin-bottom keeps it visually clear of the block. */
-.hovercard {
+/* Hover-reveal download overlay: a solid brutalist icon centered on the block.
+   Hidden (opacity 0 + pointer-events:none) until the block is hovered, so it
+   never intercepts the timeline's click-to-seek when idle. */
+.block-dl {
   position: absolute;
-  bottom: 100%;
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
-  z-index: 50;
-  width: max-content;
-  max-width: 300px;
-  margin-bottom: 8px;
-  padding: 10px 12px;
-  background: #fff;
-  border: 2px solid #000;
-  border-radius: 10px;
-  box-shadow: 4px 4px 0px #000;
-  cursor: default;
-}
-
-/* Header row: timestamp on the left, the download icon pinned top-right. */
-.hovercard-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 10px;
-}
-
-.hovercard-time {
-  font-family: var(--font-mono), monospace;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink);
-}
-
-.hovercard-text {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.4;
-  color: #333;
-  max-height: 160px;
-  overflow-y: auto;
-}
-
-/* Minimal chunky download icon in the card's top-right corner. */
-.hovercard-dl {
-  flex: 0 0 auto;
+  transform: translate(-50%, -50%);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  font-size: 13px;
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
   line-height: 1;
-  color: var(--ink);
-  background: var(--yellow);
-  border: 2px solid var(--ink);
+  color: #fff;
+  background: #000;
+  border: 2px solid #fff;
   border-radius: 7px;
-  box-shadow: 2px 2px 0 var(--ink);
   cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.1s ease, transform 0.08s ease;
 }
 
-.hovercard-dl:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 3px 3px 0 var(--ink);
+.block:hover .block-dl {
+  opacity: 1;
+  pointer-events: auto;
 }
 
-.hovercard-dl:active {
-  transform: translate(1px, 1px);
-  box-shadow: 1px 1px 0 var(--ink);
+.block-dl:hover {
+  transform: translate(-50%, -50%) scale(1.12);
+}
+
+.block-dl:active {
+  transform: translate(-50%, -50%) scale(0.92);
 }
 
 /* The teleprompter: a chunky inset box that snaps to the currently-playing

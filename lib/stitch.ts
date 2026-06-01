@@ -8,17 +8,21 @@ import type { Clip } from "./types";
 
 const audioBufferCache = new Map<string, AudioBuffer>();
 
-// A single, lazily-created AudioContext shared across every stitch/decode call.
-// Browsers cap the number of live AudioContexts (~6 in Safari), so reusing one
-// instead of new-ing (and orphaning) one per search is essential to avoid the
-// classic Web Audio leak. It's created on first use, which only ever happens
-// behind a user gesture (search / play / download).
-let decodeCtx: AudioContext | null = null;
+// Decoding audio does NOT require the live audio device — so we decode on a
+// throwaway OfflineAudioContext rather than a live AudioContext. A live context
+// here was the source of the intermittent "AudioContext encountered an error
+// from the audio device or the WebAudio renderer" failures, which left the
+// rendered reel buffer silent. The offline context also sidesteps the live-context
+// cap (~6 in Safari) and any autoplay/suspend gymnastics. Actual playback happens
+// via a plain hidden <audio> element, driven inside the play button's click handler.
+let decodeCtx: OfflineAudioContext | null = null;
 
-function getDecodeContext(): AudioContext {
-  if (!decodeCtx || decodeCtx.state === "closed") {
-    const Ctor = window.AudioContext || (window as any).webkitAudioContext;
-    decodeCtx = new Ctor();
+function getDecodeContext(): OfflineAudioContext {
+  if (!decodeCtx) {
+    const Ctor = window.OfflineAudioContext || (window as any).webkitOfflineAudioContext;
+    // Minimal 1-frame context used purely for decodeAudioData. Decoded buffers
+    // are resampled to 44.1kHz, which the output render context below also uses.
+    decodeCtx = new Ctor(1, 1, 44100);
   }
   return decodeCtx;
 }
@@ -26,11 +30,6 @@ function getDecodeContext(): AudioContext {
 async function loadBuffer(ctx: BaseAudioContext, url: string): Promise<AudioBuffer> {
   const cached = audioBufferCache.get(url);
   if (cached) return cached;
-  // Browsers auto-suspend AudioContexts that weren't created inside a user gesture.
-  // Resume before decoding so decodeAudioData doesn't stall on a suspended context.
-  if (ctx instanceof AudioContext && ctx.state === "suspended") {
-    await ctx.resume();
-  }
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch audio: ${url} (${res.status})`);
   const data = await res.arrayBuffer();

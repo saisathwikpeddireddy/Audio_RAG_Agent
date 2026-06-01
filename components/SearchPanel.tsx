@@ -220,31 +220,23 @@ const Teleprompter = memo(function Teleprompter({
 
 // A single lego-block on the timeline. Memoized so the 60fps playback leaves it
 // untouched. Measures its own rendered width so the label degrades gracefully
-// ([1] 0:27 - 0:46 → [1]), and exposes a hover card with the full timestamp, a
-// transcript preview, and a per-clip download.
+// ([1] 0:27 - 0:46 → [1]). Hovering reveals a solid download icon centered on the
+// block; clicking it slices just this clip to a WAV. No more pop-out card.
 const TimelineBlock = memo(function TimelineBlock({
   clip,
   index,
   number,
   color,
-  sourceName,
-  transcript,
   onDownloadClip,
 }: {
   clip: Clip;
   index: number;
   number: number;
   color: string;
-  sourceName: string;
-  transcript: string;
   onDownloadClip: (clip: Clip, number: number) => void;
 }) {
   const blockRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
-  const [hover, setHover] = useState(false);
-  // Small grace delay on leave so the pointer can travel from the block into the
-  // card (which sits just above it) without the card vanishing mid-reach.
-  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const el = blockRef.current;
@@ -256,19 +248,6 @@ const TimelineBlock = memo(function TimelineBlock({
     return () => ro.disconnect();
   }, []);
 
-  useEffect(() => () => {
-    if (leaveTimer.current) clearTimeout(leaveTimer.current);
-  }, []);
-
-  const openCard = () => {
-    if (leaveTimer.current) clearTimeout(leaveTimer.current);
-    setHover(true);
-  };
-  const scheduleClose = () => {
-    if (leaveTimer.current) clearTimeout(leaveTimer.current);
-    leaveTimer.current = setTimeout(() => setHover(false), 140);
-  };
-
   const startSec = clip.start_time_ms / 1000;
   const endSec = clip.end_time_ms / 1000;
   const showFull = width >= FULL_LABEL_MIN_WIDTH;
@@ -278,8 +257,6 @@ const TimelineBlock = memo(function TimelineBlock({
     <div
       className="block-wrap"
       style={{ flexGrow: Math.max(1, clip.end_time_ms - clip.start_time_ms), flexBasis: 0 }}
-      onMouseEnter={openCard}
-      onMouseLeave={scheduleClose}
     >
       <motion.div
         ref={blockRef}
@@ -290,40 +267,21 @@ const TimelineBlock = memo(function TimelineBlock({
         transition={{ type: "spring", stiffness: 320, damping: 14, delay: index * 0.07 }}
       >
         <span className="block-label">{showFull ? `[${number}] ${fullTime}` : `[${number}]`}</span>
+        {/* Hover-reveal download: a solid brutalist icon centered on the block.
+            Hidden + pointer-events:none until :hover (CSS), so it never blocks
+            click-to-seek; stopPropagation keeps a download click off the scrubber. */}
+        <button
+          type="button"
+          className="block-dl"
+          aria-label={`Download clip ${number} as WAV`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownloadClip(clip, number);
+          }}
+        >
+          ⬇
+        </button>
       </motion.div>
-
-      <AnimatePresence>
-        {hover && (
-          <motion.div
-            className="hovercard"
-            onMouseEnter={openCard}
-            onMouseLeave={scheduleClose}
-            initial={{ opacity: 0, y: 6, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 6, scale: 0.96 }}
-            transition={{ type: "spring", stiffness: 420, damping: 28 }}
-          >
-            <div className="hovercard-head">
-              <div className="hovercard-time">
-                [{number}] {fullTime}
-              </div>
-              <button
-                type="button"
-                className="hovercard-dl"
-                title="Download this chunk as WAV"
-                aria-label="Download this chunk"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onDownloadClip(clip, number);
-                }}
-              >
-                ⬇
-              </button>
-            </div>
-            {transcript && <div className="hovercard-text">{transcript}</div>}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 });
@@ -367,27 +325,6 @@ export default function SearchPanel({
     library.forEach((f, i) => byUrl.set(f.blob_url, i + 1));
     return (filePath: string) => byUrl.get(filePath) ?? 0;
   }, [library]);
-
-  // Resolve each clip's transcript by finding the retrieved hit (same source)
-  // whose time range overlaps it the most. Powers the hover preview + teleprompter.
-  const transcriptFor = useCallback(
-    (clip: Clip) => {
-      const overlap = (a1: number, a2: number, b1: number, b2: number) =>
-        Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
-      let best: Hit | null = null;
-      let bestOv = 0;
-      for (const h of hits) {
-        if (h.file_path !== clip.file_path) continue;
-        const ov = overlap(clip.start_time_ms, clip.end_time_ms, h.start_time_ms, h.end_time_ms);
-        if (ov > bestOv) {
-          bestOv = ov;
-          best = h;
-        }
-      }
-      return best ? best.child_text || best.parent_text || "" : "";
-    },
-    [hits]
-  );
 
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
@@ -605,8 +542,8 @@ export default function SearchPanel({
 
           {/* Lego-block timeline: each block's color maps to its source file's
               capsule (a legend) and shows its timestamp (or just [N] when too
-              narrow). Hover for a card with a transcript preview + download.
-              Click anywhere to seek. */}
+              narrow). Hover a block for a centered download icon; click anywhere
+              else to seek. */}
           <div
             className={`timeline ${audioUrl ? "seekable" : ""}`}
             onClick={audioUrl ? seekFromTimeline : undefined}
@@ -618,8 +555,6 @@ export default function SearchPanel({
                 index={i}
                 number={numberFor(c.file_path)}
                 color={colorFor(c.file_path)}
-                sourceName={cleanSourceName(c.file_path)}
-                transcript={transcriptFor(c)}
                 onDownloadClip={onDownloadClip}
               />
             ))}
