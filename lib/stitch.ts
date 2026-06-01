@@ -26,6 +26,11 @@ function getDecodeContext(): AudioContext {
 async function loadBuffer(ctx: BaseAudioContext, url: string): Promise<AudioBuffer> {
   const cached = audioBufferCache.get(url);
   if (cached) return cached;
+  // Browsers auto-suspend AudioContexts that weren't created inside a user gesture.
+  // Resume before decoding so decodeAudioData doesn't stall on a suspended context.
+  if (ctx instanceof AudioContext && ctx.state === "suspended") {
+    await ctx.resume();
+  }
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Failed to fetch audio: ${url} (${res.status})`);
   const data = await res.arrayBuffer();

@@ -760,7 +760,7 @@ a.dl {
   border-radius: 12px;
   background: #fffdf8;
   box-shadow: var(--shadow-sm);
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Each flex item on the timeline; carries the proportional flex-grow and
