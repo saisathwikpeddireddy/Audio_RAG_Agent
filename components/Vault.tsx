@@ -47,7 +47,7 @@ export default function Vault({
             transition={{ type: "spring", stiffness: 320, damping: 32 }}
           >
             <div className="vault-head">
-              <strong>📁 Added Files</strong>
+              <strong>📁 Active Sources</strong>
               <button className="vault-close" onClick={onClose} aria-label="Close vault">
                 ✕
               </button>

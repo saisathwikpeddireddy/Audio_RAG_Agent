@@ -116,7 +116,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ type: "spring", stiffness: 260, damping: 18 }}
           >
-            Audio RAG <span className="spark">Auto-Editor</span>
+            Audio RAG <span className="spark">Workspace</span>
           </motion.h1>
 
           <motion.button
@@ -126,13 +126,12 @@ export default function Home() {
             whileTap={{ scale: 0.94 }}
             title="See all the files you've added"
           >
-            📁 Added Files{hasFiles ? ` (${library.length})` : ""}
+            📁 Active Sources{hasFiles ? ` (${library.length})` : ""}
           </motion.button>
         </div>
 
         <p className="subtitle">
-          Drop your audio, ask a question, and get a written answer plus a seamless highlight reel
-          stitched from the moments that matter.
+          Upload raw audio, search by intent, and extract precision highlight reels.
         </p>
 
         <Dropzone compact={hasFiles} onIndexed={onIndexed} />
@@ -147,8 +146,7 @@ export default function Home() {
         <SearchPanel library={library} selected={selected} />
 
         <p className="muted" style={{ marginTop: 24 }}>
-          Tip: tap a file to add or remove it from your search. Audio is stitched right in your
-          browser, so nothing is re-uploaded to make the reel.
+          Local Processing: Audio buffers are sliced securely within your browser.
         </p>
       </main>
 

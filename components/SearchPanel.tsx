@@ -11,11 +11,10 @@ import type { Word } from "@/lib/groq";
 const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
 const FALLBACK_COLOR = "#9ca3af";
 
-// Silence (ms) injected between clips — long enough for the brain to register a
-// context switch, with a soft synthesized tick marking each boundary. This is the
-// single source of truth: it's passed to stitchClips AND to alignWordsToReel, so
-// the rendered audio, the timeline scrub math, and the karaoke sync all agree.
-const GAP_MS = 2000;
+// Silence (ms) injected between clips — long enough to register a context switch,
+// filled with a soft synthesized Rhodes pad marking each boundary. Must match the
+// value passed to stitchClips so the timeline scrub math lines up with the audio.
+const GAP_MS = 1000;
 
 // Below this rendered width (px) a timeline block hides its timestamp and shows
 // only the file legend key, so text never overflows a narrow block's borders.
@@ -43,37 +42,6 @@ function fmtTime(s: number): string {
   const m = Math.floor(s / 60);
   const sec = Math.floor(s % 60);
   return `${m}:${sec.toString().padStart(2, "0")}`;
-}
-
-// Groq Whisper transcribes only the *spoken* audio, so its word timestamps live
-// on a timeline with NO inter-clip silence. The master reel, however, bakes
-// GAP_MS of silence between clips. We realign by shifting each word forward by
-// one gap for every clip boundary it sits past.
-//
-// `clips` are concatenated in order; clip i's spoken span ends at the running
-// sum of prior durations (gap-free). A word landing after k such boundaries was
-// preceded by k gaps in the real audio, so add k * GAP_MS to its start/end.
-function alignWordsToReel(words: Word[], clips: Clip[], gapMs: number): Word[] {
-  const gapSec = gapMs / 1000;
-  // Cumulative spoken-end (no gaps) of clips 0..i — the boundaries Whisper "sees".
-  const spokenBoundaries: number[] = [];
-  let acc = 0;
-  for (const c of clips) {
-    acc += Math.max(0, (c.end_time_ms - c.start_time_ms) / 1000);
-    spokenBoundaries.push(acc);
-  }
-
-  return words.map((w) => {
-    // Count how many clip boundaries precede this word's start in spoken time.
-    // The last boundary is the end of the reel, so cap at clips.length - 1 gaps.
-    let gapsBefore = 0;
-    for (let i = 0; i < spokenBoundaries.length - 1; i++) {
-      if (w.start >= spokenBoundaries[i]) gapsBefore++;
-      else break;
-    }
-    const shift = gapsBefore * gapSec;
-    return { word: w.word, start: w.start + shift, end: w.end + shift };
-  });
 }
 
 // Subscribe to the hidden <audio>'s current time. Uses requestAnimationFrame
@@ -202,7 +170,7 @@ const Teleprompter = memo(function Teleprompter({
   }
 
   if (!words.length) {
-    return <div className="teleprompter">Hit play to read along…</div>;
+    return <div className="teleprompter">Waiting for playback…</div>;
   }
 
   return (
@@ -454,8 +422,9 @@ export default function SearchPanel({
         .then(async (r) => {
           const d = await r.json();
           if (r.ok && Array.isArray(d.words)) {
-            // Realign the gap-free Whisper timestamps onto the padded reel.
-            setReelTranscript(alignWordsToReel(d.words as Word[], data.clips as Clip[], GAP_MS));
+            // Whisper transcribes the stitched WAV directly, so its timestamps
+            // already include the baked-in silence — store them as-is, no shift.
+            setReelTranscript(d.words as Word[]);
           }
         })
         .catch(() => {
@@ -475,7 +444,7 @@ export default function SearchPanel({
       <div className="row">
         <input
           type="text"
-          placeholder="What are you looking for? e.g. “What did we decide about pricing?”"
+          placeholder="Query the transcript (e.g., “What was the pricing decision?”)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && run()}

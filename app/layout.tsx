@@ -15,7 +15,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Audio RAG Auto-Editor",
+  title: "Audio RAG Workspace",
   description: "Upload audio, ask a question, get a stitched highlight reel.",
 };
 
