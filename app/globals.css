@@ -828,6 +828,7 @@ button.link:disabled {
 .rcard-text.karaoke .kw.on {
   background: var(--yellow);
   color: #000;
+  font-weight: 600;
   box-shadow: 0 0 0 1px var(--yellow);
 }
 

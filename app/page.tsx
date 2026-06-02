@@ -134,16 +134,23 @@ export default function Home() {
           Upload raw audio, search by intent, and extract the exact quotes that matter.
         </p>
 
+        {/* Empty state (no sources): only the giant dropzone. With sources: the
+            dropzone collapses to a small "+ Add more audio" pill, and the source
+            pills + search bar appear below it. */}
         <Dropzone compact={hasFiles} onIndexed={onIndexed} />
 
-        <CapsuleStack
-          library={library}
-          selected={selected}
-          onToggle={toggleSelected}
-          onReingest={reingest}
-        />
+        {hasFiles && (
+          <>
+            <CapsuleStack
+              library={library}
+              selected={selected}
+              onToggle={toggleSelected}
+              onReingest={reingest}
+            />
 
-        <SearchPanel library={library} selected={selected} />
+            <SearchPanel library={library} selected={selected} />
+          </>
+        )}
 
         <p className="muted" style={{ marginTop: 24 }}>
           Local Processing: Audio buffers are sliced securely within your browser.
