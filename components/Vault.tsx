@@ -2,17 +2,8 @@
 
 import { AnimatePresence, motion } from "framer-motion";
 import HoldToDelete from "@/components/HoldToDelete";
+import { formatSourceName } from "@/lib/format";
 import type { LibraryFile } from "@/lib/types";
-
-function prettyName(filename: string): string {
-  let name = filename.replace(/\.[^.]+$/, "");
-  try {
-    name = decodeURIComponent(name);
-  } catch {
-    // leave as-is
-  }
-  return name.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
-}
 
 // A side-drawer "vault" for managing the memory bank: list every file and let
 // the user purge one with a deliberate hold-to-delete. Keeps destructive
@@ -73,7 +64,7 @@ export default function Vault({
                   >
                     <div className="vault-info">
                       <div className="vault-name" title={f.filename}>
-                        {prettyName(f.filename)}
+                        {formatSourceName(f.filename)}
                       </div>
                       <div className="muted vault-meta">
                         {f.status === "ready" &&

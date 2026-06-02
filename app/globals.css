@@ -704,24 +704,6 @@ button.link:disabled {
 }
 
 /* ---- Search & Extract: vertical feed of atomic result cards ---- */
-.results-hint {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--muted);
-}
-
-.results-hint kbd {
-  font-family: var(--font-mono), monospace;
-  font-weight: 700;
-  font-size: 11px;
-  color: var(--ink);
-  background: var(--surface);
-  border: 2px solid var(--ink);
-  border-radius: 6px;
-  padding: 1px 6px;
-  box-shadow: 1px 1px 0 var(--ink);
-}
-
 .results {
   display: flex;
   flex-direction: column;
@@ -770,7 +752,13 @@ button.link:disabled {
   margin-bottom: 10px;
 }
 
+/* Title flexes to fill the row and truncates — never collides with the badge. */
 .rcard-source {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-family: var(--font-display), sans-serif;
   font-size: 14px;
   font-weight: 700;
@@ -778,6 +766,7 @@ button.link:disabled {
 }
 
 .rcard-time {
+  flex: none;
   font-family: var(--font-mono), monospace;
   font-size: 12px;
   font-weight: 700;
@@ -786,6 +775,7 @@ button.link:disabled {
 }
 
 .rcard-score {
+  flex: none;
   font-family: var(--font-mono), monospace;
   font-size: 11px;
   font-weight: 700;
@@ -798,7 +788,7 @@ button.link:disabled {
 }
 
 .rcard-pin {
-  margin-left: auto;
+  flex: none;
   font-family: var(--font-mono), monospace;
   font-size: 11px;
   font-weight: 700;
@@ -828,52 +818,17 @@ button.link:disabled {
   color: #000;
 }
 
-/* ---- Brutalist audio visualizer (revealed while a card plays) ---- */
-.viz {
-  position: relative;
-  display: flex;
-  align-items: flex-end;
-  gap: 3px;
-  height: 52px;
-  margin-top: 14px;
-  padding: 8px 10px;
+/* Atomic karaoke: words light up in reading order as the chunk plays. The text
+   itself is the visualizer — no separate bar graphic. */
+.rcard-text.karaoke .kw {
+  border-radius: 3px;
+  transition: background-color 0.08s ease, color 0.08s ease;
+}
+
+.rcard-text.karaoke .kw.on {
   background: var(--yellow);
-  border: 2px solid var(--ink);
-  border-radius: 8px;
-  box-shadow: inset 2px 2px 0 rgba(17, 17, 17, 0.12);
-  overflow: hidden;
-}
-
-.viz-bar {
-  flex: 1 1 0;
-  min-width: 2px;
-  height: 16%;
-  background: #000;
-  border-radius: 2px 2px 0 0;
-}
-
-.viz.playing .viz-bar {
-  animation: viz-bounce 0.7s ease-in-out infinite;
-}
-
-@keyframes viz-bounce {
-  0%,
-  100% {
-    height: 14%;
-  }
-  50% {
-    height: 92%;
-  }
-}
-
-/* Thick black playhead sweeping across the bars. */
-.viz-playhead {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: #000;
-  pointer-events: none;
+  color: #000;
+  box-shadow: 0 0 0 1px var(--yellow);
 }
 
 /* ---- Per-card actions ---- */
@@ -943,14 +898,44 @@ button.rcard-btn.dl {
 }
 
 .tray-count {
+  flex: none;
   font-family: var(--font-display), sans-serif;
   font-size: 15px;
   font-weight: 700;
   color: #fff;
 }
 
+/* Keyboard legend, only visible here (no static clutter in the main flow). */
+.tray-legend {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tray-legend kbd {
+  font-family: var(--font-mono), monospace;
+  font-weight: 700;
+  font-size: 10px;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+/* Hide the legend on narrow screens so the count + actions always fit. */
+@media (max-width: 640px) {
+  .tray-legend {
+    display: none;
+  }
+}
+
 .tray-actions {
   margin-left: auto;
+  flex: none;
   display: flex;
   gap: 10px;
 }

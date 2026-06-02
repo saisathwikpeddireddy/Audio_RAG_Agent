@@ -1,19 +1,10 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
+import { formatSourceName } from "@/lib/format";
 import type { LibraryFile } from "@/lib/types";
 
 const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
-
-function prettyName(filename: string): string {
-  let name = filename.replace(/\.[^.]+$/, "");
-  try {
-    name = decodeURIComponent(name);
-  } catch {
-    // leave as-is if it isn't valid percent-encoding
-  }
-  return name.replace(/[_]+/g, " ").replace(/\s+/g, " ").trim();
-}
 
 // The capsule stack: every indexed file as a chunky, tappable pill with an
 // explicit selected/unselected state (not color alone). Tapping a ready pill
@@ -58,7 +49,7 @@ export default function CapsuleStack({
             >
               {ready && <span className="capsule-icon">{active ? "✓" : "+"}</span>}
               <span className="capsule-name">
-                <span className="capsule-num">[{i + 1}]</span> {prettyName(f.filename)}
+                <span className="capsule-num">[{i + 1}]</span> {formatSourceName(f.filename)}
               </span>
               {f.status === "processing" && <span className="capsule-state">Listening &amp; Indexing…</span>}
               {f.status === "failed" && (

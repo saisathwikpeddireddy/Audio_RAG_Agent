@@ -3,47 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
+import { formatSourceName } from "@/lib/format";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 
 // Must match the capsule accents in CapsuleStack, keyed by the file's position
 // in the library — so a card's accent stripe is a legend back to its source.
 const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
 const FALLBACK_COLOR = "#9ca3af";
-
-// Number of bars in each card's playback visualizer.
-const VIZ_BARS = 32;
-
-// Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
-// human title ("The Attention Equation v3").
-function cleanSourceName(path?: string): string {
-  if (!path) return "unknown source";
-  let name = path.split("/").pop() || path;
-  try {
-    name = decodeURIComponent(name);
-  } catch {
-    // leave as-is if it isn't valid percent-encoding
-  }
-  return name
-    .replace(/\.[^.]+$/, "")
-    .replace(/[_]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-// Reduce a source to its first meaningful segment for display. Raw indexed names
-// often carry trailing junk ("My Talk - Audio Overview - 2026-01-15T09:22Z - a3f9…").
-// Split on " - " separators, keep the first chunk, and scrub any stray ISO/UTC
-// date or long hex hash that survived, so the card shows just the real title.
-function formatSourceLabel(path?: string): string {
-  const name = cleanSourceName(path); // decoded, extension-stripped, _ → space
-  const first = name.split(/\s+-\s+/)[0]?.trim() || name;
-  const scrubbed = first
-    .replace(/\b\d{4}-\d{2}-\d{2}(?:[t ]\d{2}:\d{2}(?::\d{2})?z?)?\b/gi, "")
-    .replace(/\b[0-9a-f]{8,}\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  return scrubbed || first || name;
-}
 
 function fmtTime(s: number): string {
   if (!Number.isFinite(s) || s < 0) return "0:00";
@@ -52,40 +18,35 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-// Derived, render-ready data for one result card.
+// One result card maps strictly 1:1 to a single Pinecone hit. Text, playback
+// boundaries, score, and source all come from that one hit — no client-side
+// joining of separate text/audio arrays.
 interface CardData {
   key: string;
-  clip: Clip;
+  filePath: string;
+  startMs: number;
+  endMs: number;
   text: string;
-  score: number | null;
+  score: number;
   source: string;
   color: string;
 }
 
-// The per-card frequency visualizer + sweeping playhead. Only the active card
-// mounts this, and only it runs a requestAnimationFrame loop — so the 60fps
-// progress updates stay isolated to the one playing card. The bars are CSS-
-// animated (a simulated frequency wall); the playhead reflects real progress
-// through the chunk's [start, end] window.
-function CardVisualizer({
-  audioRef,
-  isPlaying,
-  startSec,
-  endSec,
-}: {
-  audioRef: React.RefObject<HTMLAudioElement>;
-  isPlaying: boolean;
-  startSec: number;
-  endSec: number;
-}) {
+// Track playback progress (0..1) through a chunk's [start, end] window. Only the
+// active card mounts a consumer of this, and it only runs rAF while playing, so
+// the 60fps updates stay isolated to the one card being heard.
+function useChunkProgress(
+  audioRef: React.RefObject<HTMLAudioElement>,
+  isPlaying: boolean,
+  startSec: number,
+  endSec: number
+): number {
   const [progress, setProgress] = useState(0);
-
   useEffect(() => {
     const span = Math.max(0.001, endSec - startSec);
     const read = () => {
       const el = audioRef.current;
-      if (!el) return;
-      setProgress(Math.min(1, Math.max(0, (el.currentTime - startSec) / span)));
+      if (el) setProgress(Math.min(1, Math.max(0, (el.currentTime - startSec) / span)));
     };
     read();
     if (!isPlaying) return;
@@ -97,28 +58,49 @@ function CardVisualizer({
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
   }, [audioRef, isPlaying, startSec, endSec]);
+  return progress;
+}
 
+// Atomic karaoke: the RAG text IS the visualizer. As the chunk plays, words light
+// up left-to-right in reading order, distributed evenly across the chunk duration
+// (metadata carries no word-level timestamps, so progress drives the sweep).
+function KaraokeText({
+  audioRef,
+  isPlaying,
+  startSec,
+  endSec,
+  text,
+}: {
+  audioRef: React.RefObject<HTMLAudioElement>;
+  isPlaying: boolean;
+  startSec: number;
+  endSec: number;
+  text: string;
+}) {
+  const progress = useChunkProgress(audioRef, isPlaying, startSec, endSec);
+  const words = useMemo(() => text.split(/(\s+)/), [text]); // keep whitespace tokens
+  const realCount = useMemo(() => words.filter((w) => w.trim()).length, [words]);
+  const filled = Math.round(progress * realCount);
+
+  let spoken = 0;
   return (
-    <div className={`viz${isPlaying ? " playing" : ""}`} aria-hidden>
-      {Array.from({ length: VIZ_BARS }).map((_, i) => (
-        <div
-          key={i}
-          className="viz-bar"
-          style={{
-            animationDelay: `${(i % 8) * 0.07}s`,
-            animationDuration: `${0.5 + (i % 5) * 0.11}s`,
-          }}
-        />
-      ))}
-      <div className="viz-playhead" style={{ left: `${progress * 100}%` }} />
-    </div>
+    <p className="rcard-text karaoke">
+      {words.map((tok, i) => {
+        if (!tok.trim()) return <span key={i}>{tok}</span>;
+        const idx = spoken++;
+        return (
+          <span key={i} className={`kw${idx < filled ? " on" : ""}`}>
+            {tok}
+          </span>
+        );
+      })}
+    </p>
   );
 }
 
-// A self-contained, skimmable audio quote. Header (source + timestamp + score),
-// the exact RAG text, an inline visualizer while playing, and its own Play /
-// Download / Pin controls. Not memoized: the list is small and the only 60fps
-// work lives inside CardVisualizer, so the card body stays cheap to re-render.
+// A self-contained, skimmable audio quote — one Pinecone hit. Header (source ·
+// timestamp · % match), the exact hit text (with karaoke while playing), and its
+// own Play / Download / Pin controls.
 function AudioResultCard({
   data,
   index,
@@ -146,8 +128,8 @@ function AudioResultCard({
   onDownload: (index: number) => void;
   onTogglePin: (index: number) => void;
 }) {
-  const startSec = data.clip.start_time_ms / 1000;
-  const endSec = data.clip.end_time_ms / 1000;
+  const startSec = data.startMs / 1000;
+  const endSec = data.endMs / 1000;
 
   return (
     <motion.div
@@ -161,11 +143,13 @@ function AudioResultCard({
       <span className="rcard-accent" style={{ background: data.color }} />
 
       <div className="rcard-head">
-        <span className="rcard-source">{data.source}</span>
+        <span className="rcard-source" title={data.source}>
+          {data.source}
+        </span>
         <span className="rcard-time">
           {fmtTime(startSec)} – {fmtTime(endSec)}
         </span>
-        {data.score != null && <span className="rcard-score">{data.score}% match</span>}
+        <span className="rcard-score">{data.score}%</span>
         <button
           type="button"
           className={`rcard-pin${pinned ? " on" : ""}`}
@@ -176,15 +160,16 @@ function AudioResultCard({
         </button>
       </div>
 
-      <p className="rcard-text">{data.text || "(no transcript text for this moment)"}</p>
-
-      {active && (
-        <CardVisualizer
+      {active ? (
+        <KaraokeText
           audioRef={audioRef}
           isPlaying={isPlaying}
           startSec={startSec}
           endSec={endSec}
+          text={data.text || "(no transcript text for this moment)"}
         />
+      ) : (
+        <p className="rcard-text">{data.text || "(no transcript text for this moment)"}</p>
       )}
 
       <div className="rcard-actions">
@@ -196,6 +181,16 @@ function AudioResultCard({
         </button>
       </div>
     </motion.div>
+  );
+}
+
+// The keyboard legend, shown only while the Extraction Tray is up (no static
+// clutter in the main flow).
+function ShortcutLegend() {
+  return (
+    <span className="tray-legend">
+      <kbd>J</kbd>/<kbd>K</kbd> nav · <kbd>Space</kbd> play · <kbd>D</kbd> download · <kbd>P</kbd> pin
+    </span>
   );
 }
 
@@ -211,12 +206,10 @@ export default function SearchPanel({
   const [stage, setStage] = useState("");
   const [error, setError] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
-  const [clips, setClips] = useState<Clip[]>([]);
   const [answer, setAnswer] = useState("");
-  const [showRaw, setShowRaw] = useState(false);
 
   // Playback: a single hidden <audio> plays one chunk at a time, seeking into the
-  // source file and auto-pausing at the chunk's end. No global stitched reel.
+  // source file and auto-pausing at the hit's end. No global stitched reel.
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -242,32 +235,21 @@ export default function SearchPanel({
     return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
   }, [library]);
 
-  // Build the render-ready cards: one per extracted clip, with the exact RAG text
-  // resolved from whichever retrieved hit overlaps it most (same source file).
-  const cards = useMemo<CardData[]>(() => {
-    const overlap = (a1: number, a2: number, b1: number, b2: number) =>
-      Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
-    return clips.map((clip, i) => {
-      let best: Hit | null = null;
-      let bestOv = -1;
-      for (const h of hits) {
-        if (h.file_path !== clip.file_path) continue;
-        const ov = overlap(clip.start_time_ms, clip.end_time_ms, h.start_time_ms, h.end_time_ms);
-        if (ov > bestOv) {
-          bestOv = ov;
-          best = h;
-        }
-      }
-      return {
-        key: `${clip.file_path}-${clip.start_time_ms}-${i}`,
-        clip,
-        text: best ? best.child_text || best.parent_text || "" : "",
-        score: best ? Math.round((best._score ?? 0) * 100) : null,
-        source: formatSourceLabel(clip.file_path),
-        color: colorFor(clip.file_path),
-      };
-    });
-  }, [clips, hits, colorFor]);
+  // Cards map STRICTLY 1:1 from hits — no overlap math, no separate clip array.
+  const cards = useMemo<CardData[]>(
+    () =>
+      hits.map((h) => ({
+        key: h._id,
+        filePath: h.file_path,
+        startMs: h.start_time_ms,
+        endMs: h.end_time_ms,
+        text: h.child_text || h.parent_text || "",
+        score: Math.round((h._score ?? 0) * 100),
+        source: formatSourceName(h.file_path),
+        color: colorFor(h.file_path),
+      })),
+    [hits, colorFor]
+  );
 
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
@@ -314,15 +296,15 @@ export default function SearchPanel({
     };
   }, []);
 
-  // Play (or pause) just one card's chunk: seek into its source file and let the
-  // auto-pause watcher stop it at the chunk's end.
+  // Play (or pause) just one card's chunk: seek into its source file at hit.start
+  // and let the auto-pause watcher stop it at hit.end.
   const togglePlay = useCallback(
     (index: number) => {
       const el = audioRef.current;
-      const card = cards[index];
+      const card = cardsRef.current[index];
       if (!el || !card) return;
-      const startSec = card.clip.start_time_ms / 1000;
-      const endSec = card.clip.end_time_ms / 1000;
+      const startSec = card.startMs / 1000;
+      const endSec = card.endMs / 1000;
 
       if (playingIndex === index && !el.paused) {
         el.pause();
@@ -341,40 +323,42 @@ export default function SearchPanel({
         el.play().catch(() => {});
       };
 
-      if (el.getAttribute("data-src") !== card.clip.file_path) {
-        el.src = card.clip.file_path;
-        el.setAttribute("data-src", card.clip.file_path);
+      if (el.getAttribute("data-src") !== card.filePath) {
+        el.src = card.filePath;
+        el.setAttribute("data-src", card.filePath);
         el.addEventListener("loadedmetadata", begin, { once: true });
         el.load();
       } else {
         begin();
       }
     },
-    [cards, playingIndex]
+    [playingIndex]
   );
 
   // Slice a single chunk out and trigger a local WAV download (no inter-clip gap).
-  const downloadChunk = useCallback(
-    async (index: number) => {
-      const card = cards[index];
-      if (!card) return;
-      try {
-        const { buffer } = await stitchClips([card.clip], 0);
-        const wav = audioBufferToWav(buffer);
-        const url = URL.createObjectURL(wav);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `chunk_${index + 1}_${Math.round(card.clip.start_time_ms / 1000)}s.wav`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      } catch (e) {
-        setError((e as Error).message);
-      }
-    },
-    [cards]
-  );
+  const downloadChunk = useCallback(async (index: number) => {
+    const card = cardsRef.current[index];
+    if (!card) return;
+    try {
+      const clip: Clip = {
+        file_path: card.filePath,
+        start_time_ms: card.startMs,
+        end_time_ms: card.endMs,
+      };
+      const { buffer } = await stitchClips([clip], 0);
+      const wav = audioBufferToWav(buffer);
+      const url = URL.createObjectURL(wav);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `chunk_${index + 1}_${Math.round(card.startMs / 1000)}s.wav`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
 
   const togglePin = useCallback((index: number) => {
     setPins((prev) => {
@@ -450,9 +434,7 @@ export default function SearchPanel({
     const md = pins
       .map(
         (p) =>
-          `- **${p.source}** (${fmtTime(p.clip.start_time_ms / 1000)}–${fmtTime(
-            p.clip.end_time_ms / 1000
-          )}): ${p.text}`
+          `- **${p.source}** (${fmtTime(p.startMs / 1000)}–${fmtTime(p.endMs / 1000)}): ${p.text}`
       )
       .join("\n");
     try {
@@ -482,9 +464,7 @@ export default function SearchPanel({
     setBusy(true);
     setError("");
     setHits([]);
-    setClips([]);
     setAnswer("");
-    setShowRaw(false);
     setPins([]);
     setFocusedIndex(-1);
 
@@ -499,12 +479,11 @@ export default function SearchPanel({
       if (!res.ok) throw new Error(data.message || data.error || "Search failed");
 
       setHits(data.hits ?? []);
-      setClips(data.clips ?? []);
       setAnswer(data.answer ?? "");
       setStage("");
       if (data.note) throw new Error(data.note);
 
-      if (!data.clips?.length && !data.answer) {
+      if (!data.hits?.length && !data.answer) {
         throw new Error("Couldn't find a clear moment for that — try rephrasing?");
       }
     } catch (e) {
@@ -585,11 +564,7 @@ export default function SearchPanel({
       {cards.length > 0 && (
         <div style={{ marginTop: 18 }}>
           <div className="muted">
-            Extracted {cards.length} quote{cards.length === 1 ? "" : "s"}
-          </div>
-          <div className="results-hint">
-            <kbd>J</kbd> / <kbd>K</kbd> navigate · <kbd>Space</kbd> play · <kbd>D</kbd> download ·{" "}
-            <kbd>P</kbd> pin
+            {cards.length} result{cards.length === 1 ? "" : "s"}
           </div>
 
           {/* Vertical feed of atomic, independently-actionable result cards. */}
@@ -618,50 +593,8 @@ export default function SearchPanel({
       {/* One hidden <audio>, driven imperatively to play a single chunk at a time. */}
       <audio ref={audioRef} style={{ display: "none" }} />
 
-      {cards.length > 0 && hits.length > 0 && (
-        <div style={{ marginTop: 18 }}>
-          <button
-            type="button"
-            className="raw-toggle"
-            onClick={() => setShowRaw((v) => !v)}
-            aria-expanded={showRaw}
-          >
-            <span className="raw-caret">{showRaw ? "▾" : "▸"}</span>
-            Inspect sources ({hits.length})
-          </button>
-
-          <AnimatePresence initial={false}>
-            {showRaw && (
-              <motion.div
-                key="raw"
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ type: "spring", stiffness: 320, damping: 30 }}
-                style={{ overflow: "hidden" }}
-              >
-                {hits.map((h, i) => {
-                  const pct = Math.round((h._score ?? 0) * 100);
-                  return (
-                    <div className="hit" key={h._id ?? i}>
-                      <div>{h.child_text}</div>
-                      <div className="meta">
-                        <span className="match-badge">{pct}% match</span>
-                        <span className="hit-name">{formatSourceLabel(h.file_path)}</span>
-                        <span className="hit-time">
-                          {fmtTime(h.start_time_ms / 1000)}–{fmtTime(h.end_time_ms / 1000)}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      )}
-
-      {/* The Extraction Tray: slides up once at least one quote is pinned. */}
+      {/* The Extraction Tray: slides up once at least one quote is pinned. Also
+          hosts the keyboard legend, so shortcuts surface only when relevant. */}
       <AnimatePresence>
         {pins.length > 0 && (
           <motion.div
@@ -675,6 +608,7 @@ export default function SearchPanel({
               <span className="tray-count">
                 {pins.length} Insight{pins.length === 1 ? "" : "s"} Staged
               </span>
+              <ShortcutLegend />
               <div className="tray-actions">
                 <button type="button" className="tray-clear" onClick={() => setPins([])}>
                   Clear
