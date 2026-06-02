@@ -3,7 +3,7 @@
 import { Pinecone } from "@pinecone-database/pinecone";
 import { config } from "./config";
 import type { Hit } from "./types";
-import type { AudioChunkRecord, AudioChunkMetadata } from "@/types/pinecone";
+import type { AudioChunkRecord } from "@/types/pinecone";
 
 let pc: Pinecone | null = null;
 
@@ -65,18 +65,26 @@ export async function search(queryText: string, topK: number, fileIds?: string[]
 
   const hits = res.result?.hits ?? [];
   return hits.map((h: any) => {
-    // Read fields through the centralized metadata schema so a field rename
-    // upstream is a compile error here, not a silent empty result.
-    const f = (h.fields ?? {}) as Partial<AudioChunkMetadata>;
+    const f = (h.fields ?? {}) as Record<string, unknown>;
+    // Legacy fallback: vectors indexed before the Small-to-Big schema only have
+    // start_time_ms/end_time_ms — fold them into both child & parent spans so
+    // pre-upgrade data still plays until it's re-ingested.
+    const legacyStart = Number(f.start_time_ms);
+    const legacyEnd = Number(f.end_time_ms);
+    const num = (v: unknown, fallback: number) =>
+      v == null || Number.isNaN(Number(v)) ? fallback : Number(v);
     return {
       _id: h._id,
       _score: h._score,
       file_path: f.file_path as string,
       title: f.title as string | undefined,
-      parent_text: f.parent_text as string,
+      parent_id: (f.parent_id as string) ?? h._id,
       child_text: f.child_text as string,
-      start_time_ms: Number(f.start_time_ms),
-      end_time_ms: Number(f.end_time_ms),
+      parent_text: (f.parent_text as string) ?? (f.child_text as string),
+      child_start_ms: num(f.child_start_ms, legacyStart),
+      child_end_ms: num(f.child_end_ms, legacyEnd),
+      parent_start_ms: num(f.parent_start_ms, legacyStart),
+      parent_end_ms: num(f.parent_end_ms, legacyEnd),
       audio_type: f.audio_type as string,
     } as Hit;
   });

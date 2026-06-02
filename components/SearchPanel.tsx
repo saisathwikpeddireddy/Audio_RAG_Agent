@@ -18,89 +18,62 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-// One result card maps strictly 1:1 to a single Pinecone hit. Text, playback
-// boundaries, score, and source all come from that one hit — no client-side
-// joining of separate text/audio arrays.
+// Small-to-Big: one card per PARENT paragraph. It plays the whole paragraph for
+// context, but visually emphasizes the exact child sentence(s) that matched.
 interface CardData {
-  key: string;
+  key: string; // parent_id
   filePath: string;
-  startMs: number;
+  startMs: number; // parent span (playback)
   endMs: number;
-  text: string;
-  score: number;
+  parentText: string; // full paragraph rendered in the card
+  childTexts: string[]; // matched sentence(s), highlighted within the paragraph
+  score: number; // best matching child score
   source: string;
   color: string;
 }
 
-// Track playback progress (0..1) through a chunk's [start, end] window. Only the
-// active card mounts a consumer of this, and it only runs rAF while playing, so
-// the 60fps updates stay isolated to the one card being heard.
-function useChunkProgress(
-  audioRef: React.RefObject<HTMLAudioElement>,
-  isPlaying: boolean,
-  startSec: number,
-  endSec: number
-): number {
-  const [progress, setProgress] = useState(0);
-  useEffect(() => {
-    const span = Math.max(0.001, endSec - startSec);
-    const read = () => {
-      const el = audioRef.current;
-      if (el) setProgress(Math.min(1, Math.max(0, (el.currentTime - startSec) / span)));
-    };
-    read();
-    if (!isPlaying) return;
-    let raf = 0;
-    const tick = () => {
-      read();
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [audioRef, isPlaying, startSec, endSec]);
-  return progress;
+// Split a paragraph into segments, marking the spans that match a retrieved child
+// sentence. Powers the typographical hierarchy: muted context + emphasized match.
+function highlightSegments(
+  parentText: string,
+  childTexts: string[]
+): Array<{ text: string; hit: boolean }> {
+  const lower = parentText.toLowerCase();
+  const ranges: Array<[number, number]> = [];
+  for (const ct of childTexts) {
+    const needle = ct.trim().toLowerCase();
+    if (!needle) continue;
+    let from = 0;
+    let idx: number;
+    while ((idx = lower.indexOf(needle, from)) !== -1) {
+      ranges.push([idx, idx + needle.length]);
+      from = idx + needle.length;
+    }
+  }
+  if (!ranges.length) return [{ text: parentText, hit: false }];
+
+  ranges.sort((a, b) => a[0] - b[0]);
+  const merged: Array<[number, number]> = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
+    else merged.push([...r]);
+  }
+
+  const segs: Array<{ text: string; hit: boolean }> = [];
+  let cursor = 0;
+  for (const [s, e] of merged) {
+    if (s > cursor) segs.push({ text: parentText.slice(cursor, s), hit: false });
+    segs.push({ text: parentText.slice(s, e), hit: true });
+    cursor = e;
+  }
+  if (cursor < parentText.length) segs.push({ text: parentText.slice(cursor), hit: false });
+  return segs;
 }
 
-// Atomic karaoke: the RAG text IS the visualizer. As the chunk plays, words light
-// up left-to-right in reading order, distributed evenly across the chunk duration
-// (metadata carries no word-level timestamps, so progress drives the sweep).
-function KaraokeText({
-  audioRef,
-  isPlaying,
-  startSec,
-  endSec,
-  text,
-}: {
-  audioRef: React.RefObject<HTMLAudioElement>;
-  isPlaying: boolean;
-  startSec: number;
-  endSec: number;
-  text: string;
-}) {
-  const progress = useChunkProgress(audioRef, isPlaying, startSec, endSec);
-  const words = useMemo(() => text.split(/(\s+)/), [text]); // keep whitespace tokens
-  const realCount = useMemo(() => words.filter((w) => w.trim()).length, [words]);
-  const filled = Math.round(progress * realCount);
-
-  let spoken = 0;
-  return (
-    <p className="rcard-text karaoke">
-      {words.map((tok, i) => {
-        if (!tok.trim()) return <span key={i}>{tok}</span>;
-        const idx = spoken++;
-        return (
-          <span key={i} className={`kw${idx < filled ? " on" : ""}`}>
-            {tok}
-          </span>
-        );
-      })}
-    </p>
-  );
-}
-
-// A self-contained, skimmable audio quote — one Pinecone hit. Header (source ·
-// timestamp · % match), the exact hit text (with karaoke while playing), and its
-// own Play / Download / Pin controls.
+// A self-contained, skimmable audio paragraph. Header (source · timestamp · %
+// match), the full paragraph with the matched sentence(s) emphasized over muted
+// context, and its own Play / Download / Pin controls.
 function AudioResultCard({
   data,
   index,
@@ -108,7 +81,6 @@ function AudioResultCard({
   active,
   isPlaying,
   pinned,
-  audioRef,
   registerRef,
   onFocus,
   onTogglePlay,
@@ -121,7 +93,6 @@ function AudioResultCard({
   active: boolean;
   isPlaying: boolean;
   pinned: boolean;
-  audioRef: React.RefObject<HTMLAudioElement>;
   registerRef: (index: number, el: HTMLDivElement | null) => void;
   onFocus: (index: number) => void;
   onTogglePlay: (index: number) => void;
@@ -130,6 +101,10 @@ function AudioResultCard({
 }) {
   const startSec = data.startMs / 1000;
   const endSec = data.endMs / 1000;
+  const segments = useMemo(
+    () => highlightSegments(data.parentText, data.childTexts),
+    [data.parentText, data.childTexts]
+  );
 
   return (
     <motion.div
@@ -160,24 +135,20 @@ function AudioResultCard({
         </button>
       </div>
 
-      {active ? (
-        <KaraokeText
-          audioRef={audioRef}
-          isPlaying={isPlaying}
-          startSec={startSec}
-          endSec={endSec}
-          text={data.text || "(no transcript text for this moment)"}
-        />
-      ) : (
-        <p className="rcard-text">{data.text || "(no transcript text for this moment)"}</p>
-      )}
+      <p className="rcard-text">
+        {segments.map((seg, i) => (
+          <span key={i} className={seg.hit ? "ctx-hit" : "ctx-muted"}>
+            {seg.text}
+          </span>
+        ))}
+      </p>
 
       <div className="rcard-actions">
         <button type="button" className="rcard-btn play" onClick={() => onTogglePlay(index)}>
           {active && isPlaying ? "❚❚ Pause" : "▶ Play"}
         </button>
         <button type="button" className="rcard-btn dl" onClick={() => onDownload(index)}>
-          ↓ Download Chunk
+          ↓ Download Paragraph
         </button>
       </div>
     </motion.div>
@@ -236,23 +207,33 @@ export default function SearchPanel({
   }, [library]);
 
   // Cards map STRICTLY 1:1 from hits — no overlap math, no dedup, no rollups. The
-  // backend now emits word-precise, non-overlapping boundaries, so the raw hits
-  // are already clean. Title comes straight from metadata (fallback only covers
-  // vectors indexed before the schema upgrade).
-  const cards = useMemo<CardData[]>(
-    () =>
-      hits.map((h) => ({
-        key: h._id,
-        filePath: h.file_path,
-        startMs: h.start_time_ms,
-        endMs: h.end_time_ms,
-        text: h.child_text || h.parent_text || "",
-        score: Math.round((h._score ?? 0) * 100),
-        source: h.title || formatSourceName(h.file_path),
-        color: colorFor(h.file_path),
-      })),
-    [hits, colorFor]
-  );
+  // Small-to-Big rollup: group the precise sentence hits by their parent
+  // paragraph, so each card is one paragraph. We keep every matched sentence
+  // (to highlight) and the best score, in first-seen (score) order.
+  const cards = useMemo<CardData[]>(() => {
+    const byParent = new Map<string, CardData>();
+    for (const h of hits) {
+      const key = h.parent_id || h._id;
+      const existing = byParent.get(key);
+      if (existing) {
+        if (h.child_text) existing.childTexts.push(h.child_text);
+        existing.score = Math.max(existing.score, Math.round((h._score ?? 0) * 100));
+      } else {
+        byParent.set(key, {
+          key,
+          filePath: h.file_path,
+          startMs: h.parent_start_ms,
+          endMs: h.parent_end_ms,
+          parentText: h.parent_text || h.child_text || "",
+          childTexts: h.child_text ? [h.child_text] : [],
+          score: Math.round((h._score ?? 0) * 100),
+          source: h.title || formatSourceName(h.file_path),
+          color: colorFor(h.file_path),
+        });
+      }
+    }
+    return [...byParent.values()];
+  }, [hits, colorFor]);
 
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
@@ -353,7 +334,7 @@ export default function SearchPanel({
       const url = URL.createObjectURL(wav);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `chunk_${index + 1}_${Math.round(card.startMs / 1000)}s.wav`;
+      a.download = `paragraph_${index + 1}_${Math.round(card.startMs / 1000)}s.wav`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -437,7 +418,7 @@ export default function SearchPanel({
     const md = pins
       .map(
         (p) =>
-          `- **${p.source}** (${fmtTime(p.startMs / 1000)}–${fmtTime(p.endMs / 1000)}): ${p.text}`
+          `- **${p.source}** (${fmtTime(p.startMs / 1000)}–${fmtTime(p.endMs / 1000)}): ${p.parentText}`
       )
       .join("\n");
     try {
@@ -581,7 +562,6 @@ export default function SearchPanel({
                 active={i === playingIndex}
                 isPlaying={i === playingIndex && isPlaying}
                 pinned={pins.some((p) => p.key === c.key)}
-                audioRef={audioRef}
                 registerRef={registerRef}
                 onFocus={setFocusedIndex}
                 onTogglePlay={togglePlay}

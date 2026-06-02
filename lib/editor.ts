@@ -38,8 +38,8 @@ export function compileContext(query: string, hits: Hit[]): string {
     (h, i) =>
       `CHUNK ${i + 1}\n` +
       `file_path: ${h.file_path}\n` +
-      `start_time_ms: ${h.start_time_ms}\n` +
-      `end_time_ms: ${h.end_time_ms}\n` +
+      `start_time_ms: ${h.parent_start_ms}\n` +
+      `end_time_ms: ${h.parent_end_ms}\n` +
       `text: ${h.parent_text}\n`
   );
   return `USER QUERY: ${query}\n\nRETRIEVED CHUNKS:\n\n${blocks.join("\n")}`;

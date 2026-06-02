@@ -25,10 +25,13 @@ export interface Hit {
   _score: number;
   file_path: string;
   title?: string; // human-readable source title, stored at ingest
-  parent_text: string;
-  child_text: string;
-  start_time_ms: number;
-  end_time_ms: number;
+  parent_id: string; // groups sibling sentence-hits into one paragraph card
+  child_text: string; // the matched sentence (for typographical highlight)
+  parent_text: string; // the full paragraph (rendered in the card)
+  child_start_ms: number;
+  child_end_ms: number;
+  parent_start_ms: number; // playback boundaries use the PARENT span
+  parent_end_ms: number;
   audio_type?: string;
 }
 

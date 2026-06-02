@@ -818,18 +818,15 @@ button.link:disabled {
   color: #000;
 }
 
-/* Atomic karaoke: words light up in reading order as the chunk plays. The text
-   itself is the visualizer — no separate bar graphic. */
-.rcard-text.karaoke .kw {
-  border-radius: 3px;
-  transition: background-color 0.08s ease, color 0.08s ease;
+/* Typographical hierarchy: the full paragraph reads as muted context, while the
+   exact matched sentence(s) stand out in high-contrast medium weight. */
+.rcard-text .ctx-muted {
+  color: #9ca3af;
 }
 
-.rcard-text.karaoke .kw.on {
-  background: var(--yellow);
+.rcard-text .ctx-hit {
   color: #000;
   font-weight: 600;
-  box-shadow: 0 0 0 1px var(--yellow);
 }
 
 /* ---- Per-card actions ---- */

@@ -119,10 +119,10 @@ export function chunkWords(words: Word[]): { parents: Parent[]; children: ChildS
   return { parents, children };
 }
 
-// Turn child spans into upsert records. Each child gets its OWN word-precise
-// [start, end] (NOT the parent's window) plus the parent's text for LLM context
-// and the precomputed human-readable title. IDs keep the `${fileId}-` prefix so
-// delete-by-prefix still works.
+// Turn child spans into Small-to-Big upsert records. Each child carries its OWN
+// word-precise sentence boundary AND its parent paragraph's id/text/span, so the
+// reader can match the sentence but roll up to (and play) the whole paragraph.
+// IDs keep the `${fileId}-` prefix so delete-by-prefix still works.
 export function buildChildRecords(
   parents: Parent[],
   children: ChildSpan[],
@@ -131,15 +131,21 @@ export function buildChildRecords(
   audioType: string,
   title: string
 ): ChildRecord[] {
-  return children.map((c, i) => ({
-    _id: `${fileId}-c${i}`,
-    file_path: filePath,
-    file_id: fileId,
-    title,
-    child_text: c.text,
-    parent_text: parents[c.parentIndex]?.text ?? c.text,
-    start_time_ms: Math.round(c.start * 1000),
-    end_time_ms: Math.round(c.end * 1000),
-    audio_type: audioType,
-  }));
+  return children.map((c, i) => {
+    const parent = parents[c.parentIndex];
+    return {
+      _id: `${fileId}-c${i}`,
+      file_path: filePath,
+      file_id: fileId,
+      title,
+      child_text: c.text,
+      child_start_ms: Math.round(c.start * 1000),
+      child_end_ms: Math.round(c.end * 1000),
+      parent_id: `${fileId}-p${c.parentIndex}`,
+      parent_text: parent?.text ?? c.text,
+      parent_start_ms: Math.round((parent?.start ?? c.start) * 1000),
+      parent_end_ms: Math.round((parent?.end ?? c.end) * 1000),
+      audio_type: audioType,
+    };
+  });
 }
