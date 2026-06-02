@@ -703,196 +703,287 @@ button.link:disabled {
   scrollbar-color: var(--pink) var(--bg);
 }
 
-/* ---- Custom brutalist transport (replaces native <audio> chrome) ---- */
-.transport {
+/* ---- Search & Extract: vertical feed of atomic result cards ---- */
+.results-hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.results-hint kbd {
+  font-family: var(--font-mono), monospace;
+  font-weight: 700;
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  padding: 1px 6px;
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+/* A self-contained, full-width audio quote card. */
+.rcard {
+  position: relative;
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 16px 18px 16px 24px;
+  box-shadow: var(--shadow-sm);
+  outline: none;
+  transition: box-shadow 0.1s ease, border-color 0.1s ease, transform 0.1s ease;
+}
+
+/* Color stripe back to the source file's capsule accent. */
+.rcard-accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  border-radius: var(--radius) 0 0 var(--radius);
+}
+
+/* Keyboard focus: thick blue border + matching hard shadow. */
+.rcard.focused {
+  border-color: #2563eb;
+  box-shadow: 5px 5px 0 #2563eb;
+  transform: translate(-1px, -1px);
+}
+
+.rcard.pinned {
+  background: #fffdf2;
+}
+
+.rcard-head {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-top: 14px;
   flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
 }
 
-button.transport-btn {
-  background: var(--pink);
-  color: #fff;
-  letter-spacing: 0.04em;
-  min-width: 128px;
-}
-
-.transport-time {
-  font-family: var(--font-mono), monospace;
+.rcard-source {
+  font-family: var(--font-display), sans-serif;
   font-size: 14px;
   font-weight: 700;
   color: var(--ink);
-  background: var(--surface);
-  border: var(--border);
-  border-radius: 10px;
-  padding: 7px 12px;
-  box-shadow: var(--shadow-sm);
+}
+
+.rcard-time {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-a.dl.transport-dl {
-  margin-top: 0;
-  margin-left: auto;
-}
-
-a.dl {
-  display: inline-block;
-  margin-top: 12px;
-  font-family: var(--font-display), sans-serif;
-  color: var(--ink);
-  font-weight: 700;
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  text-underline-offset: 3px;
-  font-size: 14px;
-}
-
-/* ---- Lego-block timeline ---- */
-.timeline {
-  position: relative;
-  display: flex;
-  gap: 4px;
-  margin-top: 14px;
-  padding: 10px;
-  border: var(--border);
-  border-radius: 12px;
-  background: #fffdf8;
-  box-shadow: var(--shadow-sm);
-  overflow: hidden;
-}
-
-/* Each flex item on the timeline; carries the proportional flex-grow. */
-.block-wrap {
-  position: relative;
-  display: flex;
-  min-width: 24px;
-}
-
-.block {
-  position: relative;
-  width: 100%;
-  height: 46px;
-  border: var(--border);
-  border-radius: 8px;
-  min-width: 0;
-  box-shadow: var(--shadow-sm);
-  display: flex;
-  align-items: center;
-  overflow: hidden;
-}
-
-/* Source + timestamp baked into each colored block; truncates cleanly. */
-.block-label {
+.rcard-score {
   font-family: var(--font-mono), monospace;
   font-size: 11px;
   font-weight: 700;
-  color: #000; /* solid black on the bright block backgrounds */
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  padding: 0 6px;
-  width: 100%;
-  text-align: center;
-}
-
-.timeline.seekable {
-  cursor: pointer;
-}
-
-.playhead {
-  position: absolute;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  background: var(--ink);
-  border-radius: 2px;
-  pointer-events: none;
-}
-
-/* Hover-reveal download overlay: a solid brutalist icon pinned to the block's
-   right edge (so it doesn't obscure the centered timestamp text). Opaque black
-   fill means it cleanly overlays the label on narrow blocks instead of muddling
-   it. Hidden (opacity 0 + pointer-events:none) until :hover, so it never
-   intercepts the timeline's click-to-seek when idle. */
-.block-dl {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  font-size: 13px;
-  line-height: 1;
-  color: #fff;
-  background: #000;
-  border: 2px solid #fff;
-  border-radius: 7px;
-  cursor: pointer;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.1s ease, transform 0.08s ease;
-}
-
-.block:hover .block-dl {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.block-dl:hover {
-  transform: translateY(-50%) scale(1.12);
-}
-
-.block-dl:active {
-  transform: translateY(-50%) scale(0.92);
-}
-
-/* The teleprompter: a chunky inset box that snaps to the currently-playing
-   clip's transcript so you can read along. */
-.teleprompter {
-  margin-top: 12px;
-  padding: 24px;
-  min-height: 56px;
-  display: flex;
-  align-items: center;
-  font-family: var(--font-mono), monospace;
-  font-size: 14px;
-  line-height: 1.7;
-  color: #000000;
-  background: #fef9c3;
+  color: var(--ink);
+  background: var(--cyan);
   border: 2px solid var(--ink);
-  border-radius: 10px;
-  box-shadow: inset 3px 3px 0 rgba(17, 17, 17, 0.12);
+  border-radius: 8px;
+  padding: 1px 7px;
+  box-shadow: 1px 1px 0 var(--ink);
 }
 
-/* Karaoke mode: a scrollable wall of word-spans, the active one highlighted. */
-.teleprompter.karaoke {
-  display: block;
-  align-items: initial;
-  max-height: 132px;
-  overflow-y: auto;
-  scroll-behavior: smooth;
-}
-
-.kword {
-  display: inline-block;
-  margin-right: 5px;
-  padding: 0 2px;
-  border-radius: 4px;
-  /* Darker gray for the not-yet-spoken words so they stay legible against the
-     yellow box; the active word flips to solid black on a brighter highlight. */
-  color: #374151;
-  transition: color 0.1s ease, background-color 0.1s ease;
-}
-
-.kword.active {
-  background: var(--yellow);
-  color: #000;
+.rcard-pin {
+  margin-left: auto;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
   font-weight: 700;
+  color: var(--ink);
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  padding: 4px 10px;
+  cursor: pointer;
+  box-shadow: 1px 1px 0 var(--ink);
+  transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.1s ease;
+}
+
+.rcard-pin:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.rcard-pin.on {
+  background: var(--yellow);
+}
+
+.rcard-text {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: #000;
+}
+
+/* ---- Brutalist audio visualizer (revealed while a card plays) ---- */
+.viz {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 52px;
+  margin-top: 14px;
+  padding: 8px 10px;
+  background: var(--yellow);
+  border: 2px solid var(--ink);
+  border-radius: 8px;
+  box-shadow: inset 2px 2px 0 rgba(17, 17, 17, 0.12);
+  overflow: hidden;
+}
+
+.viz-bar {
+  flex: 1 1 0;
+  min-width: 2px;
+  height: 16%;
+  background: #000;
+  border-radius: 2px 2px 0 0;
+}
+
+.viz.playing .viz-bar {
+  animation: viz-bounce 0.7s ease-in-out infinite;
+}
+
+@keyframes viz-bounce {
+  0%,
+  100% {
+    height: 14%;
+  }
+  50% {
+    height: 92%;
+  }
+}
+
+/* Thick black playhead sweeping across the bars. */
+.viz-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: #000;
+  pointer-events: none;
+}
+
+/* ---- Per-card actions ---- */
+.rcard-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+button.rcard-btn {
+  font-family: var(--font-display), sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 9px 16px;
+  border-radius: 10px;
+  border: var(--border);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.06s ease, box-shadow 0.06s ease;
+}
+
+button.rcard-btn:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow);
+}
+
+button.rcard-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+button.rcard-btn.play {
+  background: var(--pink);
+  color: #fff;
+}
+
+button.rcard-btn.dl {
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* ---- The Extraction Tray (sticky batch-export footer) ---- */
+.tray {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 45;
+  display: flex;
+  justify-content: center;
+  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
+}
+
+.tray-inner {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: min(900px, 100%);
+  padding: 12px 16px;
+  background: var(--ink);
+  color: #fff;
+  border: 2px solid var(--ink);
+  border-radius: 14px;
+  box-shadow: var(--shadow-lg);
+}
+
+.tray-count {
+  font-family: var(--font-display), sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.tray-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 10px;
+}
+
+button.tray-clear {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+  background: transparent;
+  border: 2px solid #fff;
+  border-radius: 10px;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+button.tray-export {
+  font-family: var(--font-display), sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--yellow);
+  border: 2px solid #fff;
+  border-radius: 10px;
+  padding: 9px 18px;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 #000;
+  transition: transform 0.06s ease;
+}
+
+button.tray-export:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
 }
 
 /* ---- Raw-sources accordion ("inspect the receipt") ---- */

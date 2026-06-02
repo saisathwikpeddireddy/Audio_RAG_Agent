@@ -131,7 +131,7 @@ export default function Home() {
         </div>
 
         <p className="subtitle">
-          Upload raw audio, search by intent, and extract precision highlight reels.
+          Upload raw audio, search by intent, and extract the exact quotes that matter.
         </p>
 
         <Dropzone compact={hasFiles} onIndexed={onIndexed} />

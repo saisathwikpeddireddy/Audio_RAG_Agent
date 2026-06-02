@@ -1,27 +1,20 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
-import type { Word } from "@/lib/groq";
 
 // Must match the capsule accents in CapsuleStack, keyed by the file's position
-// in the library — so a block's color is a legend back to its source capsule.
+// in the library — so a card's accent stripe is a legend back to its source.
 const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
 const FALLBACK_COLOR = "#9ca3af";
 
-// Silence (ms) injected between clips — long enough to register a context switch,
-// filled with a soft synthesized Rhodes pad marking each boundary. Must match the
-// value passed to stitchClips so the timeline scrub math lines up with the audio.
-const GAP_MS = 1000;
-
-// Below this rendered width (px) a timeline block hides its timestamp and shows
-// only the file legend key, so text never overflows a narrow block's borders.
-const FULL_LABEL_MIN_WIDTH = 80;
+// Number of bars in each card's playback visualizer.
+const VIZ_BARS = 32;
 
 // Turn an ugly indexed path ("…/The%20Attention_Equation%20v3.mp3") into a clean,
-// human title ("The Attention Equation v3") for the sources receipt + timeline.
+// human title ("The Attention Equation v3").
 function cleanSourceName(path?: string): string {
   if (!path) return "unknown source";
   let name = path.split("/").pop() || path;
@@ -59,224 +52,152 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-// Subscribe to the hidden <audio>'s current time. Uses requestAnimationFrame
-// while playing for smoothness, and discrete media events (seek/load) when paused
-// so the playhead still tracks scrubbing. This lives ONLY inside leaf components,
-// so the 60fps updates never re-render the parent workspace or the memoized blocks.
-function usePlaybackTime(
-  audioRef: React.RefObject<HTMLAudioElement>,
-  playing: boolean
-): number {
-  const [time, setTime] = useState(0);
+// Derived, render-ready data for one result card.
+interface CardData {
+  key: string;
+  clip: Clip;
+  text: string;
+  score: number | null;
+  source: string;
+  color: string;
+}
+
+// The per-card frequency visualizer + sweeping playhead. Only the active card
+// mounts this, and only it runs a requestAnimationFrame loop — so the 60fps
+// progress updates stay isolated to the one playing card. The bars are CSS-
+// animated (a simulated frequency wall); the playhead reflects real progress
+// through the chunk's [start, end] window.
+function CardVisualizer({
+  audioRef,
+  isPlaying,
+  startSec,
+  endSec,
+}: {
+  audioRef: React.RefObject<HTMLAudioElement>;
+  isPlaying: boolean;
+  startSec: number;
+  endSec: number;
+}) {
+  const [progress, setProgress] = useState(0);
 
   useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
-    const sync = () => setTime(el.currentTime);
-    const reset = () => setTime(0);
-    el.addEventListener("seeked", sync);
-    el.addEventListener("loadedmetadata", sync);
-    el.addEventListener("ended", reset);
-    return () => {
-      el.removeEventListener("seeked", sync);
-      el.removeEventListener("loadedmetadata", sync);
-      el.removeEventListener("ended", reset);
+    const span = Math.max(0.001, endSec - startSec);
+    const read = () => {
+      const el = audioRef.current;
+      if (!el) return;
+      setProgress(Math.min(1, Math.max(0, (el.currentTime - startSec) / span)));
     };
-  }, [audioRef]);
-
-  useEffect(() => {
-    if (!playing) return;
+    read();
+    if (!isPlaying) return;
     let raf = 0;
     const tick = () => {
-      const el = audioRef.current;
-      if (el) setTime(el.currentTime);
+      read();
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, audioRef]);
-
-  return time;
-}
-
-function audioDuration(audioRef: React.RefObject<HTMLAudioElement>): number {
-  const d = audioRef.current?.duration;
-  return d && Number.isFinite(d) ? d : 0;
-}
-
-// The moving playhead. Isolated leaf so its per-frame position updates don't
-// touch the timeline blocks. Prefers the known reel duration (set at stitch time)
-// so the bar is correctly scaled before the <audio> reports its own metadata.
-const Playhead = memo(function Playhead({
-  audioRef,
-  playing,
-  duration,
-}: {
-  audioRef: React.RefObject<HTMLAudioElement>;
-  playing: boolean;
-  duration: number;
-}) {
-  const time = usePlaybackTime(audioRef, playing);
-  const dur = duration || audioDuration(audioRef);
-  const frac = dur ? Math.min(1, time / dur) : 0;
-  return <div className="playhead" style={{ left: `${frac * 100}%` }} />;
-});
-
-// The MM:SS / MM:SS readout. Isolated so its updates don't re-render the panel.
-// Uses the pre-computed reel duration so it shows e.g. 0:00 / 1:45 immediately,
-// not 0:00 / 0:00 until the first play loads the <audio> metadata.
-const TransportClock = memo(function TransportClock({
-  audioRef,
-  playing,
-  duration,
-}: {
-  audioRef: React.RefObject<HTMLAudioElement>;
-  playing: boolean;
-  duration: number;
-}) {
-  const time = usePlaybackTime(audioRef, playing);
-  return (
-    <span className="transport-time">
-      {fmtTime(time)} / {fmtTime(duration || audioDuration(audioRef))}
-    </span>
-  );
-});
-
-// Karaoke teleprompter: maps over the JIT word-level transcript of the stitched
-// reel (from Groq Whisper) and highlights the word whose [start, end) window
-// contains the current playback time. Owns its own high-frequency time state so
-// the rest of the tree stays still, and auto-scrolls to keep the active word
-// in view. Persists the highlight on pause (keys off currentTime, not playing).
-const Teleprompter = memo(function Teleprompter({
-  audioRef,
-  playing,
-  words,
-  loading,
-}: {
-  audioRef: React.RefObject<HTMLAudioElement>;
-  playing: boolean;
-  words: Word[];
-  loading: boolean;
-}) {
-  const time = usePlaybackTime(audioRef, playing);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const activeRef = useRef<HTMLSpanElement>(null);
-
-  // Index of the word whose window contains `time`. -1 before the first word /
-  // inside inter-word gaps / after the reel has ended (time resets to 0).
-  let activeIdx = -1;
-  if (time > 0) {
-    for (let i = 0; i < words.length; i++) {
-      if (time >= words[i].start && time < words[i].end) {
-        activeIdx = i;
-        break;
-      }
-    }
-  }
-
-  // Smoothly keep the active word centered when the transcript overflows.
-  useEffect(() => {
-    const el = activeRef.current;
-    const box = containerRef.current;
-    if (!el || !box) return;
-    const elCenter = el.offsetTop + el.offsetHeight / 2;
-    box.scrollTo({ top: elCenter - box.clientHeight / 2, behavior: "smooth" });
-  }, [activeIdx]);
-
-  if (loading) {
-    return (
-      <div className="teleprompter">
-        <span className="spin" /> Transcribing the reel for read-along…
-      </div>
-    );
-  }
-
-  if (!words.length) {
-    return <div className="teleprompter">Waiting for playback…</div>;
-  }
+  }, [audioRef, isPlaying, startSec, endSec]);
 
   return (
-    <div className="teleprompter karaoke" ref={containerRef}>
-      {words.map((w, i) => (
-        <span
+    <div className={`viz${isPlaying ? " playing" : ""}`} aria-hidden>
+      {Array.from({ length: VIZ_BARS }).map((_, i) => (
+        <div
           key={i}
-          ref={i === activeIdx ? activeRef : undefined}
-          className={`kword${i === activeIdx ? " active" : ""}`}
-        >
-          {w.word}
-        </span>
+          className="viz-bar"
+          style={{
+            animationDelay: `${(i % 8) * 0.07}s`,
+            animationDuration: `${0.5 + (i % 5) * 0.11}s`,
+          }}
+        />
       ))}
+      <div className="viz-playhead" style={{ left: `${progress * 100}%` }} />
     </div>
   );
-});
+}
 
-// A single lego-block on the timeline. Memoized so the 60fps playback leaves it
-// untouched. Measures its own rendered width so the label degrades gracefully
-// ([1] 0:27 - 0:46 → [1]). Hovering reveals a solid download icon centered on the
-// block; clicking it slices just this clip to a WAV. No more pop-out card.
-const TimelineBlock = memo(function TimelineBlock({
-  clip,
+// A self-contained, skimmable audio quote. Header (source + timestamp + score),
+// the exact RAG text, an inline visualizer while playing, and its own Play /
+// Download / Pin controls. Not memoized: the list is small and the only 60fps
+// work lives inside CardVisualizer, so the card body stays cheap to re-render.
+function AudioResultCard({
+  data,
   index,
-  number,
-  color,
-  onDownloadClip,
+  focused,
+  active,
+  isPlaying,
+  pinned,
+  audioRef,
+  registerRef,
+  onFocus,
+  onTogglePlay,
+  onDownload,
+  onTogglePin,
 }: {
-  clip: Clip;
+  data: CardData;
   index: number;
-  number: number;
-  color: string;
-  onDownloadClip: (clip: Clip, number: number) => void;
+  focused: boolean;
+  active: boolean;
+  isPlaying: boolean;
+  pinned: boolean;
+  audioRef: React.RefObject<HTMLAudioElement>;
+  registerRef: (index: number, el: HTMLDivElement | null) => void;
+  onFocus: (index: number) => void;
+  onTogglePlay: (index: number) => void;
+  onDownload: (index: number) => void;
+  onTogglePin: (index: number) => void;
 }) {
-  const blockRef = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-
-  useEffect(() => {
-    const el = blockRef.current;
-    if (!el || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver((entries) => {
-      for (const e of entries) setWidth(e.contentRect.width);
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const startSec = clip.start_time_ms / 1000;
-  const endSec = clip.end_time_ms / 1000;
-  const showFull = width >= FULL_LABEL_MIN_WIDTH;
-  const fullTime = `${fmtTime(startSec)} - ${fmtTime(endSec)}`;
+  const startSec = data.clip.start_time_ms / 1000;
+  const endSec = data.clip.end_time_ms / 1000;
 
   return (
-    <div
-      className="block-wrap"
-      style={{ flexGrow: Math.max(1, clip.end_time_ms - clip.start_time_ms), flexBasis: 0 }}
+    <motion.div
+      ref={(el) => registerRef(index, el)}
+      className={`rcard${focused ? " focused" : ""}${pinned ? " pinned" : ""}`}
+      onMouseDown={() => onFocus(index)}
+      initial={{ opacity: 0, y: 14 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", stiffness: 320, damping: 26, delay: index * 0.04 }}
     >
-      <motion.div
-        ref={blockRef}
-        className="block"
-        style={{ background: color }}
-        initial={{ scale: 0.4, y: -16, opacity: 0 }}
-        animate={{ scale: 1, y: 0, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 320, damping: 14, delay: index * 0.07 }}
-      >
-        <span className="block-label">{showFull ? `[${number}] ${fullTime}` : `[${number}]`}</span>
-        {/* Hover-reveal download: a solid brutalist icon centered on the block.
-            Hidden + pointer-events:none until :hover (CSS), so it never blocks
-            click-to-seek; stopPropagation keeps a download click off the scrubber. */}
+      <span className="rcard-accent" style={{ background: data.color }} />
+
+      <div className="rcard-head">
+        <span className="rcard-source">{data.source}</span>
+        <span className="rcard-time">
+          {fmtTime(startSec)} – {fmtTime(endSec)}
+        </span>
+        {data.score != null && <span className="rcard-score">{data.score}% match</span>}
         <button
           type="button"
-          className="block-dl"
-          aria-label={`Download clip ${number} as WAV`}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDownloadClip(clip, number);
-          }}
+          className={`rcard-pin${pinned ? " on" : ""}`}
+          onClick={() => onTogglePin(index)}
+          aria-pressed={pinned}
         >
-          ⬇
+          {pinned ? "★ Saved" : "☆ Pin"}
         </button>
-      </motion.div>
-    </div>
+      </div>
+
+      <p className="rcard-text">{data.text || "(no transcript text for this moment)"}</p>
+
+      {active && (
+        <CardVisualizer
+          audioRef={audioRef}
+          isPlaying={isPlaying}
+          startSec={startSec}
+          endSec={endSec}
+        />
+      )}
+
+      <div className="rcard-actions">
+        <button type="button" className="rcard-btn play" onClick={() => onTogglePlay(index)}>
+          {active && isPlaying ? "❚❚ Pause" : "▶ Play"}
+        </button>
+        <button type="button" className="rcard-btn dl" onClick={() => onDownload(index)}>
+          ↓ Download Chunk
+        </button>
+      </div>
+    </motion.div>
   );
-});
+}
 
 export default function SearchPanel({
   library,
@@ -291,33 +212,62 @@ export default function SearchPanel({
   const [error, setError] = useState("");
   const [hits, setHits] = useState<Hit[]>([]);
   const [clips, setClips] = useState<Clip[]>([]);
-  const [rawClips, setRawClips] = useState(0);
   const [answer, setAnswer] = useState("");
-  const [audioUrl, setAudioUrl] = useState("");
-  const [reelDuration, setReelDuration] = useState(0);
-  const [playing, setPlaying] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
-  const [reelTranscript, setReelTranscript] = useState<Word[]>([]);
-  const [transcribing, setTranscribing] = useState(false);
+
+  // Playback: a single hidden <audio> plays one chunk at a time, seeking into the
+  // source file and auto-pausing at the chunk's end. No global stitched reel.
+  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
+  // Keyboard-first navigation.
+  const [focusedIndex, setFocusedIndex] = useState(-1);
+
+  // The Extraction Tray: staged quotes for batch markdown export.
+  const [pins, setPins] = useState<CardData[]>([]);
+  const [copied, setCopied] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
+  const activeRangeRef = useRef<{ start: number; end: number } | null>(null);
+  const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+  // Latest cards, so stable callbacks (togglePin/keyboard) read current data.
+  const cardsRef = useRef<CardData[]>([]);
 
   const readyCount = useMemo(() => library.filter((f) => f.status === "ready").length, [library]);
 
-  // Map a clip's source (its blob URL == library blob_url) to that file's capsule
-  // accent, so the timeline doubles as a color legend for the active sources.
+  // Map a clip's source (its blob URL == library blob_url) to that file's accent.
   const colorFor = useMemo(() => {
     const byUrl = new Map<string, string>();
     library.forEach((f, i) => byUrl.set(f.blob_url, ACCENTS[i % ACCENTS.length]));
     return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
   }, [library]);
 
-  // 1-based file number (the capsule legend key) keyed by source blob URL.
-  const numberFor = useMemo(() => {
-    const byUrl = new Map<string, number>();
-    library.forEach((f, i) => byUrl.set(f.blob_url, i + 1));
-    return (filePath: string) => byUrl.get(filePath) ?? 0;
-  }, [library]);
+  // Build the render-ready cards: one per extracted clip, with the exact RAG text
+  // resolved from whichever retrieved hit overlaps it most (same source file).
+  const cards = useMemo<CardData[]>(() => {
+    const overlap = (a1: number, a2: number, b1: number, b2: number) =>
+      Math.max(0, Math.min(a2, b2) - Math.max(a1, b1));
+    return clips.map((clip, i) => {
+      let best: Hit | null = null;
+      let bestOv = -1;
+      for (const h of hits) {
+        if (h.file_path !== clip.file_path) continue;
+        const ov = overlap(clip.start_time_ms, clip.end_time_ms, h.start_time_ms, h.end_time_ms);
+        if (ov > bestOv) {
+          bestOv = ov;
+          best = h;
+        }
+      }
+      return {
+        key: `${clip.file_path}-${clip.start_time_ms}-${i}`,
+        clip,
+        text: best ? best.child_text || best.parent_text || "" : "",
+        score: best ? Math.round((best._score ?? 0) * 100) : null,
+        source: formatSourceLabel(clip.file_path),
+        color: colorFor(clip.file_path),
+      };
+    });
+  }, [clips, hits, colorFor]);
 
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
@@ -337,126 +287,226 @@ export default function SearchPanel({
     return out.slice(0, 6);
   }, [library, selected]);
 
-  // Custom transport: drive the hidden <audio> directly so the native chrome
-  // never appears (it broke the brutalist look).
-  function togglePlay() {
-    const el = audioRef.current;
-    if (!el) return;
-    if (el.paused) {
-      el.play().catch(() => {});
-    } else {
-      el.pause();
-    }
-  }
-
-  // Slice a single clip out and trigger a local WAV download — same pipeline as
-  // the master reel, isolated to this clip's start/end (no inter-clip gap).
-  // Stable identity keeps the memoized TimelineBlocks from re-rendering.
-  const onDownloadClip = useCallback(async (clip: Clip, number: number) => {
-    try {
-      const { buffer } = await stitchClips([clip], 0);
-      const wav = audioBufferToWav(buffer);
-      const url = URL.createObjectURL(wav);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `clip_${number}_${Math.round(clip.start_time_ms / 1000)}s.wav`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    } catch (e) {
-      setError((e as Error).message);
-    }
+  const registerRef = useCallback((index: number, el: HTMLDivElement | null) => {
+    cardRefs.current[index] = el;
   }, []);
 
-  // Click anywhere on the lego timeline to scrub — replaces the native bar. The
-  // isolated <Playhead> picks up the new position via the audio's "seeked" event.
-  function seekFromTimeline(e: React.MouseEvent<HTMLDivElement>) {
+  // Wire the shared <audio>: reflect play/pause state and auto-pause each chunk
+  // at its end boundary so a card only ever plays its own moment.
+  useEffect(() => {
     const el = audioRef.current;
-    if (!el || !audioUrl || !el.duration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const frac = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    el.currentTime = frac * el.duration;
-  }
+    if (!el) return;
+    const onTime = () => {
+      const r = activeRangeRef.current;
+      if (r && el.currentTime >= r.end) el.pause();
+    };
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    el.addEventListener("timeupdate", onTime);
+    el.addEventListener("play", onPlay);
+    el.addEventListener("pause", onPause);
+    el.addEventListener("ended", onPause);
+    return () => {
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("play", onPlay);
+      el.removeEventListener("pause", onPause);
+      el.removeEventListener("ended", onPause);
+    };
+  }, []);
+
+  // Play (or pause) just one card's chunk: seek into its source file and let the
+  // auto-pause watcher stop it at the chunk's end.
+  const togglePlay = useCallback(
+    (index: number) => {
+      const el = audioRef.current;
+      const card = cards[index];
+      if (!el || !card) return;
+      const startSec = card.clip.start_time_ms / 1000;
+      const endSec = card.clip.end_time_ms / 1000;
+
+      if (playingIndex === index && !el.paused) {
+        el.pause();
+        return;
+      }
+
+      activeRangeRef.current = { start: startSec, end: endSec };
+      setPlayingIndex(index);
+
+      const begin = () => {
+        try {
+          el.currentTime = startSec;
+        } catch {
+          // ignore: will start from 0 if seeking isn't ready yet
+        }
+        el.play().catch(() => {});
+      };
+
+      if (el.getAttribute("data-src") !== card.clip.file_path) {
+        el.src = card.clip.file_path;
+        el.setAttribute("data-src", card.clip.file_path);
+        el.addEventListener("loadedmetadata", begin, { once: true });
+        el.load();
+      } else {
+        begin();
+      }
+    },
+    [cards, playingIndex]
+  );
+
+  // Slice a single chunk out and trigger a local WAV download (no inter-clip gap).
+  const downloadChunk = useCallback(
+    async (index: number) => {
+      const card = cards[index];
+      if (!card) return;
+      try {
+        const { buffer } = await stitchClips([card.clip], 0);
+        const wav = audioBufferToWav(buffer);
+        const url = URL.createObjectURL(wav);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `chunk_${index + 1}_${Math.round(card.clip.start_time_ms / 1000)}s.wav`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    },
+    [cards]
+  );
+
+  const togglePin = useCallback((index: number) => {
+    setPins((prev) => {
+      const card = cardsRef.current[index];
+      if (!card) return prev;
+      return prev.some((p) => p.key === card.key)
+        ? prev.filter((p) => p.key !== card.key)
+        : [...prev, card];
+    });
+  }, []);
+
+  // Keep cardsRef in sync so the stable callbacks above read the latest cards.
+  useEffect(() => {
+    cardsRef.current = cards;
+  }, [cards]);
+
+  // Focus the first card whenever a new result set lands; clear when empty.
+  useEffect(() => {
+    setFocusedIndex(cards.length ? 0 : -1);
+  }, [cards.length]);
+
+  // Smoothly center the focused card in the viewport.
+  useEffect(() => {
+    if (focusedIndex < 0) return;
+    cardRefs.current[focusedIndex]?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusedIndex]);
+
+  // Keyboard-first navigation: J/K + arrows move focus, Space plays the focused
+  // card, D downloads it, P pins it. Ignored while typing in the search box.
+  useEffect(() => {
+    if (!cards.length) return;
+    const onKey = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+
+      const k = e.key.toLowerCase();
+      if (k === "j" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setFocusedIndex((i) => Math.min(cards.length - 1, (i < 0 ? -1 : i) + 1));
+      } else if (k === "k" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setFocusedIndex((i) => Math.max(0, (i < 0 ? 1 : i) - 1));
+      } else if (e.key === " ") {
+        e.preventDefault();
+        setFocusedIndex((i) => {
+          const idx = i < 0 ? 0 : i;
+          togglePlay(idx);
+          return idx;
+        });
+      } else if (k === "d") {
+        e.preventDefault();
+        setFocusedIndex((i) => {
+          const idx = i < 0 ? 0 : i;
+          downloadChunk(idx);
+          return idx;
+        });
+      } else if (k === "p") {
+        e.preventDefault();
+        setFocusedIndex((i) => {
+          const idx = i < 0 ? 0 : i;
+          togglePin(idx);
+          return idx;
+        });
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cards.length, togglePlay, downloadChunk, togglePin]);
+
+  // Copy every pinned quote to the clipboard as clean Markdown.
+  const exportPins = useCallback(async () => {
+    if (!pins.length) return;
+    const md = pins
+      .map(
+        (p) =>
+          `- **${p.source}** (${fmtTime(p.clip.start_time_ms / 1000)}–${fmtTime(
+            p.clip.end_time_ms / 1000
+          )}): ${p.text}`
+      )
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(md);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Couldn't access the clipboard — copy is blocked in this context.");
+    }
+  }, [pins]);
 
   async function run(override?: string) {
     const q = (override ?? query).trim();
     if (!q || busy) return;
     if (readyCount === 0) {
-      setError("Add some audio above first, then ask away.");
+      setError("Add some audio above first, then search.");
       return;
     }
     if (selected.length === 0) {
-      setError("Select at least one audio file above to start searching.");
+      setError("Select at least one source above to search.");
       return;
     }
 
+    // Stop any in-flight playback and clear the previous result set.
+    audioRef.current?.pause();
+    setPlayingIndex(null);
     setBusy(true);
     setError("");
     setHits([]);
     setClips([]);
-    setRawClips(0);
     setAnswer("");
-    setPlaying(false);
     setShowRaw(false);
-    setReelTranscript([]);
-    setTranscribing(false);
-    if (audioUrl) URL.revokeObjectURL(audioUrl);
-    setAudioUrl("");
-    setReelDuration(0);
+    setPins([]);
+    setFocusedIndex(-1);
 
     try {
-      setStage("Digging through your audio…");
+      setStage("Searching your audio…");
       const res = await fetch("/api/search", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: q, fileIds: selected }),
       });
       const data = await res.json();
-      // Prefer the friendly, classified message from the API (e.g. rate-limit copy).
       if (!res.ok) throw new Error(data.message || data.error || "Search failed");
 
       setHits(data.hits ?? []);
       setClips(data.clips ?? []);
-      setRawClips(data.rawClips ?? (data.clips?.length || 0));
       setAnswer(data.answer ?? "");
+      setStage("");
       if (data.note) throw new Error(data.note);
 
-      if (!data.clips?.length) {
-        setStage("");
-        if (!data.answer) throw new Error("Couldn't find a clear moment for that — try rephrasing?");
-        return;
+      if (!data.clips?.length && !data.answer) {
+        throw new Error("Couldn't find a clear moment for that — try rephrasing?");
       }
-
-      setStage("Cutting your highlight reel…");
-      const { buffer, durationSec } = await stitchClips(data.clips, GAP_MS);
-      const wav = audioBufferToWav(buffer);
-      setAudioUrl(URL.createObjectURL(wav));
-      // Show the total length right away (clips + gaps), before <audio> metadata loads.
-      setReelDuration(durationSec);
-      setStage("");
-
-      // JIT karaoke: send the freshly-stitched reel to Groq Whisper for
-      // word-level timestamps. Fire-and-forget so playback isn't blocked — the
-      // teleprompter shows a "transcribing…" state until the words arrive.
-      setTranscribing(true);
-      fetch("/api/transcribe-reel", {
-        method: "POST",
-        headers: { "Content-Type": "audio/wav" },
-        body: wav,
-      })
-        .then(async (r) => {
-          const d = await r.json();
-          if (r.ok && Array.isArray(d.words)) {
-            // Whisper transcribes the stitched WAV directly, so its timestamps
-            // already include the baked-in silence — store them as-is, no shift.
-            setReelTranscript(d.words as Word[]);
-          }
-        })
-        .catch(() => {
-          // Non-fatal: the reel still plays; the teleprompter just stays idle.
-        })
-        .finally(() => setTranscribing(false));
     } catch (e) {
       setError((e as Error).message);
       setStage("");
@@ -493,7 +543,6 @@ export default function SearchPanel({
               key={i}
               className="chip"
               onClick={() => {
-                // Populate the search box (as if typed), then run the query.
                 setQuery(q);
                 run(q);
               }}
@@ -533,71 +582,43 @@ export default function SearchPanel({
         )}
       </AnimatePresence>
 
-      {clips.length > 0 && (
+      {cards.length > 0 && (
         <div style={{ marginTop: 18 }}>
-          <div className="muted">{clips.length} clip(s)</div>
-
-          {/* Lego-block timeline: each block's color maps to its source file's
-              capsule (a legend) and shows its timestamp (or just [N] when too
-              narrow). Hover a block for a centered download icon; click anywhere
-              else to seek. */}
-          <div
-            className={`timeline ${audioUrl ? "seekable" : ""}`}
-            onClick={audioUrl ? seekFromTimeline : undefined}
-          >
-            {clips.map((c, i) => (
-              <TimelineBlock
-                key={`${c.file_path}-${c.start_time_ms}-${i}`}
-                clip={c}
-                index={i}
-                number={numberFor(c.file_path)}
-                color={colorFor(c.file_path)}
-                onDownloadClip={onDownloadClip}
-              />
-            ))}
-            {audioUrl && <Playhead audioRef={audioRef} playing={playing} duration={reelDuration} />}
+          <div className="muted">
+            Extracted {cards.length} quote{cards.length === 1 ? "" : "s"}
+          </div>
+          <div className="results-hint">
+            <kbd>J</kbd> / <kbd>K</kbd> navigate · <kbd>Space</kbd> play · <kbd>D</kbd> download ·{" "}
+            <kbd>P</kbd> pin
           </div>
 
-          {/* Karaoke teleprompter: highlights the word currently being spoken,
-              from a JIT word-level transcription of the stitched reel. */}
-          <Teleprompter
-            audioRef={audioRef}
-            playing={playing}
-            words={reelTranscript}
-            loading={transcribing}
-          />
+          {/* Vertical feed of atomic, independently-actionable result cards. */}
+          <div className="results">
+            {cards.map((c, i) => (
+              <AudioResultCard
+                key={c.key}
+                data={c}
+                index={i}
+                focused={i === focusedIndex}
+                active={i === playingIndex}
+                isPlaying={i === playingIndex && isPlaying}
+                pinned={pins.some((p) => p.key === c.key)}
+                audioRef={audioRef}
+                registerRef={registerRef}
+                onFocus={setFocusedIndex}
+                onTogglePlay={togglePlay}
+                onDownload={downloadChunk}
+                onTogglePin={togglePin}
+              />
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Custom brutalist transport replaces the native player. The <audio> is
-          kept permanently mounted but visually hidden, driven directly via the
-          ref so the native chrome never shows. */}
-      {audioUrl && (
-        <div className="transport">
-          <motion.button
-            className="primary transport-btn"
-            onClick={togglePlay}
-            whileHover={{ scale: 1.05, rotate: -1 }}
-            whileTap={{ scale: 0.94 }}
-          >
-            {playing ? "❚❚ PAUSE" : "▶ PLAY"}
-          </motion.button>
-          <TransportClock audioRef={audioRef} playing={playing} duration={reelDuration} />
-          <a className="dl transport-dl" href={audioUrl} download="highlight_reel.wav">
-            ↓ WAV
-          </a>
-        </div>
-      )}
-      <audio
-        ref={audioRef}
-        src={audioUrl || undefined}
-        style={{ display: "none" }}
-        onPlay={() => setPlaying(true)}
-        onPause={() => setPlaying(false)}
-        onEnded={() => setPlaying(false)}
-      />
+      {/* One hidden <audio>, driven imperatively to play a single chunk at a time. */}
+      <audio ref={audioRef} style={{ display: "none" }} />
 
-      {clips.length > 0 && hits.length > 0 && (
+      {cards.length > 0 && hits.length > 0 && (
         <div style={{ marginTop: 18 }}>
           <button
             type="button"
@@ -639,6 +660,33 @@ export default function SearchPanel({
           </AnimatePresence>
         </div>
       )}
+
+      {/* The Extraction Tray: slides up once at least one quote is pinned. */}
+      <AnimatePresence>
+        {pins.length > 0 && (
+          <motion.div
+            className="tray"
+            initial={{ y: 140 }}
+            animate={{ y: 0 }}
+            exit={{ y: 140 }}
+            transition={{ type: "spring", stiffness: 320, damping: 30 }}
+          >
+            <div className="tray-inner">
+              <span className="tray-count">
+                {pins.length} Insight{pins.length === 1 ? "" : "s"} Staged
+              </span>
+              <div className="tray-actions">
+                <button type="button" className="tray-clear" onClick={() => setPins([])}>
+                  Clear
+                </button>
+                <button type="button" className="tray-export" onClick={exportPins}>
+                  {copied ? "✓ Copied" : "⬇ Export"}
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
