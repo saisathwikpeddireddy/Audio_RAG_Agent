@@ -24,6 +24,7 @@ export interface Hit {
   _id: string;
   _score: number;
   file_path: string;
+  title?: string; // human-readable source title, stored at ingest
   parent_text: string;
   child_text: string;
   start_time_ms: number;
@@ -55,6 +56,7 @@ export type FileStatus = "processing" | "ready" | "failed";
 export interface LibraryFile {
   file_id: string;
   filename: string;
+  title?: string; // human-readable display title, computed once at ingest
   blob_url: string;
   audio_type: string;
   children: number;

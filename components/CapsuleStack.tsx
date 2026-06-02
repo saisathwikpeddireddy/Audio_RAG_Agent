@@ -49,7 +49,7 @@ export default function CapsuleStack({
             >
               {ready && <span className="capsule-icon">{active ? "✓" : "+"}</span>}
               <span className="capsule-name">
-                <span className="capsule-num">[{i + 1}]</span> {formatSourceName(f.filename)}
+                <span className="capsule-num">[{i + 1}]</span> {f.title || formatSourceName(f.filename)}
               </span>
               {f.status === "processing" && <span className="capsule-state">Listening &amp; Indexing…</span>}
               {f.status === "failed" && (

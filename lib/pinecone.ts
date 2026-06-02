@@ -72,6 +72,7 @@ export async function search(queryText: string, topK: number, fileIds?: string[]
       _id: h._id,
       _score: h._score,
       file_path: f.file_path as string,
+      title: f.title as string | undefined,
       parent_text: f.parent_text as string,
       child_text: f.child_text as string,
       start_time_ms: Number(f.start_time_ms),
@@ -83,7 +84,7 @@ export async function search(queryText: string, topK: number, fileIds?: string[]
 
 // Delete every child vector for a file. Serverless/Starter indexes don't support
 // delete-by-metadata-filter, so we list IDs by their deterministic prefix
-// (`${fileId}-p{n}-c{m}`) and delete by ID in batches. Returns the count removed.
+// (`${fileId}-c{n}`) and delete by ID in batches. Returns the count removed.
 export async function deleteFileVectors(fileId: string): Promise<number> {
   const ns = await ensureIndex();
   const prefix = `${fileId}-`;

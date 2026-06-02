@@ -7,11 +7,12 @@
 
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
-import { transcribeUrl } from "@/lib/groq";
-import { buildParents, buildChildRecords } from "@/lib/chunking";
+import { transcribeUrlWords } from "@/lib/groq";
+import { chunkWords, buildChildRecords } from "@/lib/chunking";
 import { upsertChildren } from "@/lib/pinecone";
 import { suggestQuestions } from "@/lib/suggest";
 import { saveLibraryEntry } from "@/lib/library";
+import { formatSourceName } from "@/lib/format";
 import { classifyError } from "@/lib/errors";
 import type { LibraryFile } from "@/lib/types";
 
@@ -40,12 +41,13 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 
 // The actual transcription + indexing work. Returns the children count and the
 // grounded example questions, or throws on failure / timeout.
-async function indexFile(url: string, fileId: string, type: string) {
-  const segments = await transcribeUrl(url);
-  if (!segments.length) throw new Error("No speech detected in this audio.");
+async function indexFile(url: string, fileId: string, type: string, title: string) {
+  // Word-level timestamps → each child chunk gets its OWN precise [start, end].
+  const words = await transcribeUrlWords(url);
+  if (!words.length) throw new Error("No speech detected in this audio.");
 
-  const parents = buildParents(segments);
-  const records = buildChildRecords(parents, url, fileId, type);
+  const { parents, children } = chunkWords(words);
+  const records = buildChildRecords(parents, children, url, fileId, type, title);
   if (records.length) await upsertChildren(records);
 
   const transcript = parents.map((p) => p.text).join("\n");
@@ -56,7 +58,7 @@ async function indexFile(url: string, fileId: string, type: string) {
 async function runIngestion(base: LibraryFile) {
   try {
     const { children, suggestions } = await withTimeout(
-      indexFile(base.blob_url, base.file_id, base.audio_type),
+      indexFile(base.blob_url, base.file_id, base.audio_type, base.title ?? base.filename),
       SOFT_TIMEOUT_MS,
       "Indexing took too long — try a shorter clip, or split the file."
     );
@@ -88,6 +90,9 @@ export async function POST(request: Request) {
     const entry: LibraryFile = {
       file_id: fileIdFrom(url, filename),
       filename,
+      // Compute the human-readable title ONCE here, so the frontend never has to
+      // guess it from a URL slug. Stored on the manifest AND each vector.
+      title: formatSourceName(filename),
       blob_url: url,
       audio_type: audioType ?? "conversational",
       children: 0,

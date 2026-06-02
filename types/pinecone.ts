@@ -7,12 +7,13 @@
 // field the hosted embedding model vectorizes (see fieldMap in lib/pinecone.ts).
 
 export interface AudioChunkMetadata extends Record<string, string | number> {
-  file_path: string; // Vercel Blob URL — the browser fetches this to stitch audio
+  file_path: string; // Vercel Blob URL — the browser fetches this to play audio
   file_id: string; // stable per-upload id; used for $in filtering by source
+  title: string; // human-readable source title, computed once at ingest
   child_text: string; // embedded text
   parent_text: string; // wider context window for the editor LLM
-  start_time_ms: number;
-  end_time_ms: number;
+  start_time_ms: number; // precise: start of the FIRST word in this chunk
+  end_time_ms: number; // precise: end of the LAST word in this chunk
   audio_type: string;
 }
 

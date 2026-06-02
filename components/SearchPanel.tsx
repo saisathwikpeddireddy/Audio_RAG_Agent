@@ -235,7 +235,10 @@ export default function SearchPanel({
     return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
   }, [library]);
 
-  // Cards map STRICTLY 1:1 from hits — no overlap math, no separate clip array.
+  // Cards map STRICTLY 1:1 from hits — no overlap math, no dedup, no rollups. The
+  // backend now emits word-precise, non-overlapping boundaries, so the raw hits
+  // are already clean. Title comes straight from metadata (fallback only covers
+  // vectors indexed before the schema upgrade).
   const cards = useMemo<CardData[]>(
     () =>
       hits.map((h) => ({
@@ -245,7 +248,7 @@ export default function SearchPanel({
         endMs: h.end_time_ms,
         text: h.child_text || h.parent_text || "",
         score: Math.round((h._score ?? 0) * 100),
-        source: formatSourceName(h.file_path),
+        source: h.title || formatSourceName(h.file_path),
         color: colorFor(h.file_path),
       })),
     [hits, colorFor]

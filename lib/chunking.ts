@@ -1,88 +1,145 @@
-// Dynamic-window Parent-Child chunking (port of chunking.py).
+// Word-level Parent-Child chunking.
 //
-// Group Whisper segments into "parent" windows (break at a natural pause or
-// after ~30s), then split each parent into "child" sentences. Only children are
-// embedded, but every child carries its parent's wide time window so retrieval
-// splices a complete thought rather than a fragment.
+// Group transcribed WORDS into sentences (each with precise first-word/last-word
+// boundaries), then group sentences into wide "parent" context windows. Only the
+// child sentences are embedded, but each child carries BOTH its own tight audio
+// boundary (start of its first word → end of its last word) and its parent's
+// wider text window for the editor LLM. This replaces the old behavior where
+// every child inherited its parent's coarse ~30s window — the root cause of
+// duplicate cards and imprecise playback.
 
 import { config } from "./config";
-import type { Segment, Parent, ChildRecord } from "./types";
+import type { Word } from "./groq";
+import type { Parent, ChildRecord } from "./types";
 
-function splitSentences(text: string): string[] {
-  const trimmed = text.trim();
-  if (!trimmed) return [];
-  // Split after sentence-ending punctuation followed by whitespace.
-  return trimmed
-    .split(/(?<=[.!?])\s+/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+// A sentence with word-precise boundaries (seconds).
+interface Sentence {
+  start: number;
+  end: number;
+  text: string;
 }
 
-// True when `text` ends on a sentence-terminal token (allowing trailing quotes
-// or brackets), i.e. a safe place to cut without slicing a thought in half.
+// A child chunk + the index of the parent window it belongs to.
+interface ChildSpan {
+  start: number;
+  end: number;
+  text: string;
+  parentIndex: number;
+}
+
+// True when a token ends on a sentence-terminal (allowing trailing quotes/brackets).
 function endsSentence(text: string): boolean {
-  return /[.!?]["'”’)\]]*\s*$/.test(text);
+  return /[.!?]["'”’)\]]*$/.test(text.trim());
 }
 
-// Silence-/token-bound parent windows. We accumulate sentences and only commit
-// a boundary once the window has reached the soft target AND we hit a natural
-// pause (gap > threshold) or a sentence terminal — so a parent is dynamically
-// sized (~target..max seconds) but never cut mid-word or mid-thought. A hard
-// max guards against runaway windows when neither signal appears.
-export function buildParents(segments: Segment[]): Parent[] {
-  const parents: Parent[] = [];
-  let current: Parent | null = null;
+// Join word tokens into readable text, tightening spaces before punctuation
+// (Whisper word tokens don't carry their own surrounding spaces).
+function joinWords(tokens: string[]): string {
+  return tokens
+    .join(" ")
+    .replace(/\s+([.,!?;:”’)\]])/g, "$1")
+    .replace(/([("'“‘])\s+/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
-  for (const seg of segments) {
-    const text = (seg.text ?? "").trim();
-    if (!text) continue;
+// Group words into sentences. A sentence closes on terminal punctuation, or is
+// flushed early when a long pause (> pauseThreshold) separates words — so a
+// run-on without punctuation still yields bounded, word-aligned chunks.
+function buildSentences(words: Word[]): Sentence[] {
+  const sentences: Sentence[] = [];
+  let tokens: string[] = [];
+  let start = 0;
+  let end = 0;
 
-    if (!current) {
-      current = { start: seg.start, end: seg.end, text };
-      continue;
+  const flush = () => {
+    if (!tokens.length) return;
+    const text = joinWords(tokens);
+    if (text) sentences.push({ start, end, text });
+    tokens = [];
+  };
+
+  for (const w of words) {
+    const token = (w.word ?? "").trim();
+    if (!token) continue;
+
+    if (!tokens.length) {
+      start = w.start;
+    } else if (w.start - end > config.pauseThresholdSeconds) {
+      // Long silence before this word — close the prior sentence first.
+      flush();
+      start = w.start;
     }
 
-    const gap = seg.start - current.end;
-    const duration = current.end - current.start;
-    const reachedTarget = duration >= config.parentTargetSeconds;
-    const naturalBoundary = gap > config.pauseThresholdSeconds || endsSentence(current.text);
-    const hardCap = duration >= config.parentMaxSeconds;
+    tokens.push(token);
+    end = w.end;
 
-    if ((reachedTarget && naturalBoundary) || hardCap) {
-      parents.push(current);
-      current = { start: seg.start, end: seg.end, text };
-    } else {
-      current.end = seg.end;
-      current.text = `${current.text} ${text}`.trim();
-    }
+    if (endsSentence(token)) flush();
   }
-
-  if (current) parents.push(current);
-  return parents;
+  flush();
+  return sentences;
 }
 
+// Build wide parent windows from sentences AND record which parent each child
+// sentence belongs to, so children keep their own tight boundaries while still
+// carrying the parent's context text. Parent windows grow to a soft target and
+// commit only at a natural pause / sentence terminal, with a hard max guard.
+export function chunkWords(words: Word[]): { parents: Parent[]; children: ChildSpan[] } {
+  const sentences = buildSentences(words);
+  const parents: Parent[] = [];
+  const children: ChildSpan[] = [];
+
+  let current: Parent | null = null;
+  let currentIndex = 0; // the index `current` will occupy once pushed
+
+  for (const s of sentences) {
+    if (!current) {
+      current = { start: s.start, end: s.end, text: s.text };
+      currentIndex = parents.length;
+    } else {
+      const gap = s.start - current.end;
+      const duration = current.end - current.start;
+      const reachedTarget = duration >= config.parentTargetSeconds;
+      const naturalBoundary = gap > config.pauseThresholdSeconds || endsSentence(current.text);
+      const hardCap = duration >= config.parentMaxSeconds;
+
+      if ((reachedTarget && naturalBoundary) || hardCap) {
+        parents.push(current);
+        current = { start: s.start, end: s.end, text: s.text };
+        currentIndex = parents.length;
+      } else {
+        current.end = s.end;
+        current.text = `${current.text} ${s.text}`.trim();
+      }
+    }
+    children.push({ start: s.start, end: s.end, text: s.text, parentIndex: currentIndex });
+  }
+  if (current) parents.push(current);
+
+  return { parents, children };
+}
+
+// Turn child spans into upsert records. Each child gets its OWN word-precise
+// [start, end] (NOT the parent's window) plus the parent's text for LLM context
+// and the precomputed human-readable title. IDs keep the `${fileId}-` prefix so
+// delete-by-prefix still works.
 export function buildChildRecords(
   parents: Parent[],
+  children: ChildSpan[],
   filePath: string,
   fileId: string,
-  audioType: string
+  audioType: string,
+  title: string
 ): ChildRecord[] {
-  const records: ChildRecord[] = [];
-  parents.forEach((parent, pIdx) => {
-    const startMs = Math.round(parent.start * 1000);
-    const endMs = Math.round(parent.end * 1000);
-    splitSentences(parent.text).forEach((sentence, cIdx) => {
-      records.push({
-        _id: `${fileId}-p${pIdx}-c${cIdx}`,
-        file_path: filePath,
-        file_id: fileId,
-        child_text: sentence,
-        parent_text: parent.text,
-        start_time_ms: startMs,
-        end_time_ms: endMs,
-        audio_type: audioType,
-      });
-    });
-  });
-  return records;
+  return children.map((c, i) => ({
+    _id: `${fileId}-c${i}`,
+    file_path: filePath,
+    file_id: fileId,
+    title,
+    child_text: c.text,
+    parent_text: parents[c.parentIndex]?.text ?? c.text,
+    start_time_ms: Math.round(c.start * 1000),
+    end_time_ms: Math.round(c.end * 1000),
+    audio_type: audioType,
+  }));
 }
