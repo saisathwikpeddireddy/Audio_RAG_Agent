@@ -856,6 +856,11 @@ button.rcard-btn.play {
   color: #fff;
 }
 
+button.rcard-btn.copy {
+  background: var(--cyan);
+  color: var(--ink);
+}
+
 button.rcard-btn.dl {
   background: var(--surface);
   color: var(--ink);
