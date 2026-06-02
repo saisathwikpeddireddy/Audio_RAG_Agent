@@ -821,7 +821,7 @@ button.link:disabled {
 /* Typographical hierarchy: the full paragraph reads as muted context, while the
    exact matched sentence(s) stand out in high-contrast medium weight. */
 .rcard-text .ctx-muted {
-  color: #9ca3af;
+  color: #4b5563; /* gray-600 — WCAG-safe muted context on white */
 }
 
 .rcard-text .ctx-hit {

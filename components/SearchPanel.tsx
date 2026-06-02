@@ -207,15 +207,17 @@ export default function SearchPanel({
   }, [library]);
 
   // Cards map STRICTLY 1:1 from hits — no overlap math, no dedup, no rollups. The
-  // Small-to-Big rollup: group the precise sentence hits by their parent
-  // paragraph, so each card is one paragraph. We keep every matched sentence
-  // (to highlight) and the best score, in first-seen (score) order.
+  // Small-to-Big rollup: reduce the precise sentence hits into a map keyed by
+  // parent paragraph, so each card is ONE paragraph that can never duplicate. Key
+  // by parent_id, falling back to the parent_text itself (collapses identical
+  // paragraphs even for vectors indexed before the parent_id schema landed).
   const cards = useMemo<CardData[]>(() => {
     const byParent = new Map<string, CardData>();
     for (const h of hits) {
-      const key = h.parent_id || h._id;
+      const key = h.parent_id || h.parent_text || h._id;
       const existing = byParent.get(key);
       if (existing) {
+        // Same paragraph → just record the additional matched sentence.
         if (h.child_text) existing.childTexts.push(h.child_text);
         existing.score = Math.max(existing.score, Math.round((h._score ?? 0) * 100));
       } else {
@@ -227,7 +229,8 @@ export default function SearchPanel({
           parentText: h.parent_text || h.child_text || "",
           childTexts: h.child_text ? [h.child_text] : [],
           score: Math.round((h._score ?? 0) * 100),
-          source: h.title || formatSourceName(h.file_path),
+          // Always run the formatter — stored titles may predate its upgrade.
+          source: formatSourceName(h.title || h.file_path),
           color: colorFor(h.file_path),
         });
       }

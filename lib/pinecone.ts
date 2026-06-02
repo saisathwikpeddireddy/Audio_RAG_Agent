@@ -78,7 +78,7 @@ export async function search(queryText: string, topK: number, fileIds?: string[]
       _score: h._score,
       file_path: f.file_path as string,
       title: f.title as string | undefined,
-      parent_id: (f.parent_id as string) ?? h._id,
+      parent_id: (f.parent_id as string) || "",
       child_text: f.child_text as string,
       parent_text: (f.parent_text as string) ?? (f.child_text as string),
       child_start_ms: num(f.child_start_ms, legacyStart),
