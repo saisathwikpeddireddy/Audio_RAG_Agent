@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
-import { formatSourceName } from "@/lib/format";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 
 // Must match the capsule accents in CapsuleStack, keyed by the file's position
@@ -18,135 +17,123 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
-// One matched child sentence inside a paragraph, with its precise audio offsets.
-interface Match {
-  text: string;
-  startMs: number; // child_start_ms — where click-to-seek jumps to
-  endMs: number; // child_end_ms — the tight "Download Quote" boundary
-}
-
-// Small-to-Big: one card per PARENT paragraph. It plays the whole paragraph for
-// context, but emphasizes the matched child sentence(s) — and each highlight is
-// click-to-seek, jumping the audio to that sentence's exact start.
+// One card maps strictly 1:1 to a single hit (one complete sentence).
 interface CardData {
-  key: string; // parent_id
+  key: string;
   filePath: string;
-  startMs: number; // parent span (full-paragraph playback)
+  startMs: number;
   endMs: number;
-  parentText: string;
-  matches: Match[];
+  text: string;
   score: number;
-  source: string;
   color: string;
 }
 
-interface Segment {
+// Track playback progress (0..1) through a chunk's [start, end] window. Only the
+// active card mounts a consumer, and it only runs rAF while playing, so the 60fps
+// updates stay isolated to the one card being heard.
+function useChunkProgress(
+  audioRef: React.RefObject<HTMLAudioElement>,
+  isPlaying: boolean,
+  startSec: number,
+  endSec: number
+): number {
+  const [progress, setProgress] = useState(0);
+  useEffect(() => {
+    const span = Math.max(0.001, endSec - startSec);
+    const read = () => {
+      const el = audioRef.current;
+      if (el) setProgress(Math.min(1, Math.max(0, (el.currentTime - startSec) / span)));
+    };
+    read();
+    if (!isPlaying) return;
+    let raf = 0;
+    const tick = () => {
+      read();
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [audioRef, isPlaying, startSec, endSec]);
+  return progress;
+}
+
+// Karaoke: as the sentence plays, words light up left-to-right (solid yellow,
+// black text), driven by (currentTime - chunk_start) / duration.
+function KaraokeText({
+  audioRef,
+  isPlaying,
+  startSec,
+  endSec,
+  text,
+}: {
+  audioRef: React.RefObject<HTMLAudioElement>;
+  isPlaying: boolean;
+  startSec: number;
+  endSec: number;
   text: string;
-  hit: boolean;
-  startMs?: number; // present on hit segments — the seek target
-  endMs?: number; // present on hit segments — the tight download boundary
+}) {
+  const progress = useChunkProgress(audioRef, isPlaying, startSec, endSec);
+  const tokens = useMemo(() => text.split(/(\s+)/), [text]); // keep whitespace tokens
+  const realCount = useMemo(() => tokens.filter((t) => t.trim()).length, [tokens]);
+  const filled = Math.round(progress * realCount);
+
+  let spoken = 0;
+  return (
+    <p className="rcard-text karaoke">
+      {tokens.map((tok, i) => {
+        if (!tok.trim()) return <span key={i}>{tok}</span>;
+        const idx = spoken++;
+        return (
+          <span key={i} className={`kw${idx < filled ? " on" : ""}`}>
+            {tok}
+          </span>
+        );
+      })}
+    </p>
+  );
 }
 
-// Split a paragraph into segments, tagging the spans that match a retrieved child
-// sentence with that sentence's start/end offsets. Powers the typographical
-// hierarchy (muted context + emphasized match), click-to-seek, and quote download.
-function highlightSegments(parentText: string, matches: Match[]): Segment[] {
-  const lower = parentText.toLowerCase();
-  const ranges: Array<[number, number, number, number]> = []; // [start, end, startMs, endMs]
-  for (const m of matches) {
-    const needle = m.text.trim().toLowerCase();
-    if (!needle) continue;
-    let from = 0;
-    let idx: number;
-    while ((idx = lower.indexOf(needle, from)) !== -1) {
-      ranges.push([idx, idx + needle.length, m.startMs, m.endMs]);
-      from = idx + needle.length;
-    }
-  }
-  if (!ranges.length) return [{ text: parentText, hit: false }];
-
-  ranges.sort((a, b) => a[0] - b[0]);
-  const merged: Array<[number, number, number, number]> = [];
-  for (const r of ranges) {
-    const last = merged[merged.length - 1];
-    if (last && r[0] <= last[1]) {
-      last[1] = Math.max(last[1], r[1]);
-      last[2] = Math.min(last[2], r[2]); // earliest quote start in the merged span
-      last[3] = Math.max(last[3], r[3]); // latest quote end in the merged span
-    } else {
-      merged.push([...r]);
-    }
-  }
-
-  const segs: Segment[] = [];
-  let cursor = 0;
-  for (const [s, e, startMs, endMs] of merged) {
-    if (s > cursor) segs.push({ text: parentText.slice(cursor, s), hit: false });
-    segs.push({ text: parentText.slice(s, e), hit: true, startMs, endMs });
-    cursor = e;
-  }
-  if (cursor < parentText.length) segs.push({ text: parentText.slice(cursor), hit: false });
-  return segs;
+// Tactile "now playing" indicator: bars dance while this card's audio plays, and
+// rest flat when paused. Pure CSS keyframes; animation only runs when .playing.
+function Waveform({ playing }: { playing: boolean }) {
+  return (
+    <span className={`waveform${playing ? " playing" : ""}`} aria-hidden>
+      {[0, 1, 2, 3, 4].map((i) => (
+        <span key={i} className="wf-bar" />
+      ))}
+    </span>
+  );
 }
 
-// A self-contained, skimmable audio paragraph. Header (source · timestamp · %
-// match), the full paragraph with matched sentence(s) emphasized over muted
-// context (each highlight is click-to-seek), and Play / Copy / Download controls.
-// The download morphs between the full paragraph and the precise clicked quote.
+// A minimal, self-contained audio sentence. Header is just the timestamp + match
+// score (no repetitive title). Karaoke text while playing, plain otherwise. One
+// Play control (with waveform) and one static Download Audio button.
 function AudioResultCard({
   data,
   index,
   focused,
   active,
   isPlaying,
+  audioRef,
   registerRef,
   onFocus,
   onTogglePlay,
   onDownload,
-  onSeek,
 }: {
   data: CardData;
   index: number;
   focused: boolean;
   active: boolean;
   isPlaying: boolean;
+  audioRef: React.RefObject<HTMLAudioElement>;
   registerRef: (index: number, el: HTMLDivElement | null) => void;
   onFocus: (index: number) => void;
   onTogglePlay: (index: number) => void;
-  onDownload: (index: number, startMs: number, endMs: number, kind: "paragraph" | "quote") => void;
-  onSeek: (index: number, childStartMs: number) => void;
+  onDownload: (index: number) => void;
 }) {
   const startSec = data.startMs / 1000;
   const endSec = data.endMs / 1000;
-  const segments = useMemo(
-    () => highlightSegments(data.parentText, data.matches),
-    [data.parentText, data.matches]
-  );
-
-  // Download follows focus: the whole paragraph by default, or the precise clicked
-  // quote once the user interacts with a highlight.
-  const [downloadContext, setDownloadContext] = useState<"parent" | "child">("parent");
-  const [activeChildMatch, setActiveChildMatch] = useState<Match | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const onCopy = useCallback(async () => {
-    // Bold the focused quote (or the top match) inside the paragraph context.
-    const child = activeChildMatch ?? data.matches[0] ?? null;
-    const body = child ? data.parentText.replace(child.text, `**${child.text}**`) : data.parentText;
-    const range = child
-      ? `${fmtTime(child.startMs / 1000)} - ${fmtTime(child.endMs / 1000)}`
-      : `${fmtTime(startSec)} - ${fmtTime(endSec)}`;
-    const clipboardText = `> ${body}\n\n*Source: ${data.source || "Audio"} (${range})*`;
-    try {
-      await navigator.clipboard.writeText(clipboardText);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // clipboard blocked in this context — silently no-op
-    }
-  }, [activeChildMatch, data.matches, data.parentText, data.source, startSec, endSec]);
-
-  const isChild = downloadContext === "child" && !!activeChildMatch;
+  const playing = active && isPlaying;
 
   return (
     <motion.div
@@ -160,71 +147,31 @@ function AudioResultCard({
       <span className="rcard-accent" style={{ background: data.color }} />
 
       <div className="rcard-head">
-        <span className="rcard-source" title={data.source}>
-          {data.source}
-        </span>
         <span className="rcard-time">
           {fmtTime(startSec)} – {fmtTime(endSec)}
         </span>
         <span className="rcard-score">{data.score}%</span>
       </div>
 
-      <p className="rcard-text">
-        {segments.map((seg, i) =>
-          seg.hit ? (
-            <button
-              key={i}
-              type="button"
-              className="ctx-hit"
-              title="Jump to this moment"
-              onClick={(e) => {
-                e.stopPropagation();
-                // Focus the download/copy on this exact quote, then seek + play.
-                setDownloadContext("child");
-                setActiveChildMatch({
-                  text: seg.text,
-                  startMs: seg.startMs ?? data.startMs,
-                  endMs: seg.endMs ?? data.endMs,
-                });
-                onSeek(index, seg.startMs ?? data.startMs);
-              }}
-            >
-              {seg.text}
-            </button>
-          ) : (
-            <span key={i} className="ctx-muted">
-              {seg.text}
-            </span>
-          )
-        )}
-      </p>
+      {active ? (
+        <KaraokeText
+          audioRef={audioRef}
+          isPlaying={isPlaying}
+          startSec={startSec}
+          endSec={endSec}
+          text={data.text}
+        />
+      ) : (
+        <p className="rcard-text">{data.text}</p>
+      )}
 
       <div className="rcard-actions">
-        <button
-          type="button"
-          className="rcard-btn play"
-          onClick={() => {
-            // Playing the whole paragraph resets the download back to "paragraph".
-            setDownloadContext("parent");
-            setActiveChildMatch(null);
-            onTogglePlay(index);
-          }}
-        >
-          {active && isPlaying ? "❚❚ Pause" : "▶ Play"}
+        <button type="button" className="rcard-btn play" onClick={() => onTogglePlay(index)}>
+          {playing ? "❚❚ Pause" : "▶ Play"}
         </button>
-        <button type="button" className="rcard-btn copy" onClick={onCopy}>
-          {copied ? "✓ Copied" : "⎘ Copy"}
-        </button>
-        <button
-          type="button"
-          className="rcard-btn dl"
-          onClick={() =>
-            isChild && activeChildMatch
-              ? onDownload(index, activeChildMatch.startMs, activeChildMatch.endMs, "quote")
-              : onDownload(index, data.startMs, data.endMs, "paragraph")
-          }
-        >
-          {isChild ? "↓ Download Quote" : "↓ Download Paragraph"}
+        <Waveform playing={playing} />
+        <button type="button" className="rcard-btn dl" onClick={() => onDownload(index)}>
+          ↓ Download Audio
         </button>
       </div>
     </motion.div>
@@ -245,8 +192,8 @@ export default function SearchPanel({
   const [hits, setHits] = useState<Hit[]>([]);
   const [answer, setAnswer] = useState("");
 
-  // Playback: a single hidden <audio> plays one paragraph at a time, seeking into
-  // the source file and auto-pausing at the paragraph's end.
+  // Playback: a single hidden <audio> plays one sentence at a time, seeking into
+  // the source file and auto-pausing at the chunk's end.
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -256,7 +203,7 @@ export default function SearchPanel({
   const audioRef = useRef<HTMLAudioElement>(null);
   const activeRangeRef = useRef<{ start: number; end: number } | null>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
-  // Latest cards, so stable callbacks (keyboard / seek) read current data.
+  // Latest cards, so stable callbacks (keyboard) read current data.
   const cardsRef = useRef<CardData[]>([]);
 
   const readyCount = useMemo(() => library.filter((f) => f.status === "ready").length, [library]);
@@ -268,43 +215,20 @@ export default function SearchPanel({
     return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
   }, [library]);
 
-  // Small-to-Big rollup: reduce the precise sentence hits into a map keyed by
-  // parent paragraph, so each card is ONE paragraph that can never duplicate. Key
-  // by parent_id, falling back to the parent_text itself (collapses identical
-  // paragraphs even for vectors indexed before the parent_id schema landed).
-  const cards = useMemo<CardData[]>(() => {
-    const byParent = new Map<string, CardData>();
-    for (const h of hits) {
-      const key = h.parent_id || h.parent_text || h._id;
-      const existing = byParent.get(key);
-      if (existing) {
-        // Same paragraph → record the additional matched sentence + its offsets.
-        if (h.child_text)
-          existing.matches.push({
-            text: h.child_text,
-            startMs: h.child_start_ms,
-            endMs: h.child_end_ms,
-          });
-        existing.score = Math.max(existing.score, Math.round((h._score ?? 0) * 100));
-      } else {
-        byParent.set(key, {
-          key,
-          filePath: h.file_path,
-          startMs: h.parent_start_ms,
-          endMs: h.parent_end_ms,
-          parentText: h.parent_text || h.child_text || "",
-          matches: h.child_text
-            ? [{ text: h.child_text, startMs: h.child_start_ms, endMs: h.child_end_ms }]
-            : [],
-          score: Math.round((h._score ?? 0) * 100),
-          // Always run the formatter — stored titles may predate its upgrade.
-          source: formatSourceName(h.title || h.file_path),
-          color: colorFor(h.file_path),
-        });
-      }
-    }
-    return [...byParent.values()];
-  }, [hits, colorFor]);
+  // STRICTLY 1:1 — one hit, one card. No grouping, dedup, or rollups.
+  const cards = useMemo<CardData[]>(
+    () =>
+      hits.map((h) => ({
+        key: h._id,
+        filePath: h.file_path,
+        startMs: h.start_time_ms,
+        endMs: h.end_time_ms,
+        text: h.child_text || "",
+        score: Math.round((h._score ?? 0) * 100),
+        color: colorFor(h.file_path),
+      })),
+    [hits, colorFor]
+  );
 
   // Grounded one-click prompts from whichever sources are currently active.
   const chips = useMemo(() => {
@@ -328,8 +252,8 @@ export default function SearchPanel({
     cardRefs.current[index] = el;
   }, []);
 
-  // Wire the shared <audio>: reflect play/pause state and auto-pause at the
-  // current segment's end boundary.
+  // Wire the shared <audio>: reflect play/pause state and auto-pause each chunk
+  // at its end boundary so a card only ever plays its own sentence.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -351,85 +275,69 @@ export default function SearchPanel({
     };
   }, []);
 
-  // Shared helper: point the <audio> at a card's source and start at `fromSec`,
-  // auto-pausing at the paragraph's end.
-  const playFrom = useCallback((index: number, fromSec: number) => {
-    const el = audioRef.current;
-    const card = cardsRef.current[index];
-    if (!el || !card) return;
-    activeRangeRef.current = { start: fromSec, end: card.endMs / 1000 };
-    setPlayingIndex(index);
-
-    const begin = () => {
-      try {
-        el.currentTime = fromSec;
-      } catch {
-        // ignore: will start from 0 if seeking isn't ready yet
-      }
-      el.play().catch(() => {});
-    };
-
-    if (el.getAttribute("data-src") !== card.filePath) {
-      el.src = card.filePath;
-      el.setAttribute("data-src", card.filePath);
-      el.addEventListener("loadedmetadata", begin, { once: true });
-      el.load();
-    } else {
-      begin();
-    }
-  }, []);
-
-  // Play (from the paragraph start) or pause the current card.
+  // Play (or pause) one card's sentence: seek into its source file at chunk start
+  // and let the auto-pause watcher stop it at chunk end.
   const togglePlay = useCallback(
     (index: number) => {
       const el = audioRef.current;
       const card = cardsRef.current[index];
       if (!el || !card) return;
+      const startSec = card.startMs / 1000;
+      const endSec = card.endMs / 1000;
+
       if (playingIndex === index && !el.paused) {
         el.pause();
         return;
       }
-      playFrom(index, card.startMs / 1000);
-    },
-    [playingIndex, playFrom]
-  );
 
-  // Click-to-seek: jump straight to a matched sentence and play from there.
-  const seekToMatch = useCallback(
-    (index: number, childStartMs: number) => {
-      setFocusedIndex(index);
-      playFrom(index, childStartMs / 1000);
-    },
-    [playFrom]
-  );
+      activeRangeRef.current = { start: startSec, end: endSec };
+      setPlayingIndex(index);
 
-  // Slice the requested span (paragraph OR a precise quote) to a local WAV.
-  const downloadClip = useCallback(
-    async (index: number, startMs: number, endMs: number, kind: "paragraph" | "quote") => {
-      const card = cardsRef.current[index];
-      if (!card) return;
-      try {
-        const clip: Clip = {
-          file_path: card.filePath,
-          start_time_ms: startMs,
-          end_time_ms: endMs,
-        };
-        const { buffer } = await stitchClips([clip], 0);
-        const wav = audioBufferToWav(buffer);
-        const url = URL.createObjectURL(wav);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${kind}_${index + 1}_${Math.round(startMs / 1000)}s.wav`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-      } catch (e) {
-        setError((e as Error).message);
+      const begin = () => {
+        try {
+          el.currentTime = startSec;
+        } catch {
+          // ignore: will start from 0 if seeking isn't ready yet
+        }
+        el.play().catch(() => {});
+      };
+
+      if (el.getAttribute("data-src") !== card.filePath) {
+        el.src = card.filePath;
+        el.setAttribute("data-src", card.filePath);
+        el.addEventListener("loadedmetadata", begin, { once: true });
+        el.load();
+      } else {
+        begin();
       }
     },
-    []
+    [playingIndex]
   );
+
+  // Slice the sentence out and trigger a local WAV download (no inter-clip gap).
+  const downloadChunk = useCallback(async (index: number) => {
+    const card = cardsRef.current[index];
+    if (!card) return;
+    try {
+      const clip: Clip = {
+        file_path: card.filePath,
+        start_time_ms: card.startMs,
+        end_time_ms: card.endMs,
+      };
+      const { buffer } = await stitchClips([clip], 0);
+      const wav = audioBufferToWav(buffer);
+      const url = URL.createObjectURL(wav);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `audio_${index + 1}_${Math.round(card.startMs / 1000)}s.wav`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
 
   // Keep cardsRef in sync so the stable callbacks above read the latest cards.
   useEffect(() => {
@@ -473,15 +381,14 @@ export default function SearchPanel({
         e.preventDefault();
         setFocusedIndex((i) => {
           const idx = i < 0 ? 0 : i;
-          const card = cardsRef.current[idx];
-          if (card) downloadClip(idx, card.startMs, card.endMs, "paragraph");
+          downloadChunk(idx);
           return idx;
         });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cards.length, togglePlay, downloadClip]);
+  }, [cards.length, togglePlay, downloadChunk]);
 
   async function run(override?: string) {
     const q = (override ?? query).trim();
@@ -603,7 +510,7 @@ export default function SearchPanel({
             {cards.length} result{cards.length === 1 ? "" : "s"}
           </div>
 
-          {/* Vertical feed of atomic, independently-actionable result cards. */}
+          {/* Vertical feed of atomic, 1:1 result cards. */}
           <div className="results">
             {cards.map((c, i) => (
               <AudioResultCard
@@ -613,18 +520,18 @@ export default function SearchPanel({
                 focused={i === focusedIndex}
                 active={i === playingIndex}
                 isPlaying={i === playingIndex && isPlaying}
+                audioRef={audioRef}
                 registerRef={registerRef}
                 onFocus={setFocusedIndex}
                 onTogglePlay={togglePlay}
-                onDownload={downloadClip}
-                onSeek={seekToMatch}
+                onDownload={downloadChunk}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* One hidden <audio>, driven imperatively to play a single paragraph. */}
+      {/* One hidden <audio>, driven imperatively to play a single sentence. */}
       <audio ref={audioRef} style={{ display: "none" }} />
     </div>
   );

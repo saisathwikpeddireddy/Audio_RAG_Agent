@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { transcribeUrlWords } from "@/lib/groq";
-import { chunkWords, buildChildRecords } from "@/lib/chunking";
+import { buildSentences, buildChildRecords } from "@/lib/chunking";
 import { upsertChildren } from "@/lib/pinecone";
 import { suggestQuestions } from "@/lib/suggest";
 import { saveLibraryEntry } from "@/lib/library";
@@ -42,15 +42,15 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 // The actual transcription + indexing work. Returns the children count and the
 // grounded example questions, or throws on failure / timeout.
 async function indexFile(url: string, fileId: string, type: string, title: string) {
-  // Word-level timestamps → each child chunk gets its OWN precise [start, end].
+  // Word-level timestamps → strict sentence chunks, each with a precise boundary.
   const words = await transcribeUrlWords(url);
   if (!words.length) throw new Error("No speech detected in this audio.");
 
-  const { parents, children } = chunkWords(words);
-  const records = buildChildRecords(parents, children, url, fileId, type, title);
+  const sentences = buildSentences(words);
+  const records = buildChildRecords(sentences, url, fileId, type, title);
   if (records.length) await upsertChildren(records);
 
-  const transcript = parents.map((p) => p.text).join("\n");
+  const transcript = sentences.map((s) => s.text).join("\n");
   const suggestions = await suggestQuestions(transcript);
   return { children: records.length, suggestions };
 }

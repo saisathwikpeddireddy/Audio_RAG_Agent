@@ -790,41 +790,73 @@ button.link:disabled {
   color: #000;
 }
 
-/* Typographical hierarchy: the full paragraph reads as muted context, while the
-   exact matched sentence(s) stand out in high-contrast medium weight. */
-.rcard-text .ctx-muted {
-  color: #4b5563; /* gray-600 — WCAG-safe muted context on white */
-}
-
-/* The matched sentence(s) are click-to-seek buttons rendered inline. Reset the
-   native button chrome so they read as text, then add a clear-but-subtle
-   affordance: pointer cursor + a pale yellow wash and underline on hover. */
-.rcard-text .ctx-hit {
-  display: inline;
-  margin: 0;
-  padding: 0 1px;
-  border: none;
-  background: transparent;
-  font: inherit;
-  color: #000;
-  font-weight: 600;
+/* Karaoke: words light up in reading order as the sentence plays — the text
+   itself is the tactile visualizer. */
+.rcard-text.karaoke .kw {
   border-radius: 3px;
-  cursor: pointer;
-  text-underline-offset: 3px;
-  transition: background-color 0.1s ease;
+  transition: background-color 0.08s ease, color 0.08s ease;
 }
 
-.rcard-text .ctx-hit:hover,
-.rcard-text .ctx-hit:focus-visible {
-  background: #fef08a; /* pale yellow */
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  outline: none;
+.rcard-text.karaoke .kw.on {
+  background: #fde047; /* solid yellow-300 */
+  color: #000;
+  box-shadow: 0 0 0 1px #fde047;
+}
+
+/* ---- Tactile waveform: dances only while this card's audio plays ---- */
+.waveform {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  height: 22px;
+  padding: 0 4px;
+}
+
+.wf-bar {
+  width: 3px;
+  height: 5px;
+  background: var(--ink);
+  border-radius: 2px;
+}
+
+.waveform.playing .wf-bar {
+  animation: wf-bounce 0.7s ease-in-out infinite;
+}
+
+.waveform.playing .wf-bar:nth-child(1) {
+  animation-duration: 0.62s;
+}
+.waveform.playing .wf-bar:nth-child(2) {
+  animation-duration: 0.5s;
+  animation-delay: 0.08s;
+}
+.waveform.playing .wf-bar:nth-child(3) {
+  animation-duration: 0.74s;
+  animation-delay: 0.02s;
+}
+.waveform.playing .wf-bar:nth-child(4) {
+  animation-duration: 0.55s;
+  animation-delay: 0.12s;
+}
+.waveform.playing .wf-bar:nth-child(5) {
+  animation-duration: 0.66s;
+  animation-delay: 0.05s;
+}
+
+@keyframes wf-bounce {
+  0%,
+  100% {
+    height: 5px;
+  }
+  50% {
+    height: 20px;
+  }
 }
 
 /* ---- Per-card actions ---- */
 .rcard-actions {
   display: flex;
+  align-items: center;
   gap: 10px;
   margin-top: 14px;
 }
@@ -854,11 +886,6 @@ button.rcard-btn:active {
 button.rcard-btn.play {
   background: var(--pink);
   color: #fff;
-}
-
-button.rcard-btn.copy {
-  background: var(--cyan);
-  color: var(--ink);
 }
 
 button.rcard-btn.dl {

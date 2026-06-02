@@ -66,25 +66,22 @@ export async function search(queryText: string, topK: number, fileIds?: string[]
   const hits = res.result?.hits ?? [];
   return hits.map((h: any) => {
     const f = (h.fields ?? {}) as Record<string, unknown>;
-    // Legacy fallback: vectors indexed before the Small-to-Big schema only have
-    // start_time_ms/end_time_ms — fold them into both child & parent spans so
-    // pre-upgrade data still plays until it's re-ingested.
-    const legacyStart = Number(f.start_time_ms);
-    const legacyEnd = Number(f.end_time_ms);
-    const num = (v: unknown, fallback: number) =>
-      v == null || Number.isNaN(Number(v)) ? fallback : Number(v);
+    // Resilient across schema generations: prefer the flat start/end, falling
+    // back to older child_*/parent_* fields so pre-revert vectors still play.
+    const num = (...vals: unknown[]) => {
+      for (const v of vals) {
+        if (v != null && !Number.isNaN(Number(v))) return Number(v);
+      }
+      return 0;
+    };
     return {
       _id: h._id,
       _score: h._score,
       file_path: f.file_path as string,
       title: f.title as string | undefined,
-      parent_id: (f.parent_id as string) || "",
-      child_text: f.child_text as string,
-      parent_text: (f.parent_text as string) ?? (f.child_text as string),
-      child_start_ms: num(f.child_start_ms, legacyStart),
-      child_end_ms: num(f.child_end_ms, legacyEnd),
-      parent_start_ms: num(f.parent_start_ms, legacyStart),
-      parent_end_ms: num(f.parent_end_ms, legacyEnd),
+      child_text: (f.child_text as string) ?? (f.parent_text as string) ?? "",
+      start_time_ms: num(f.start_time_ms, f.child_start_ms, f.parent_start_ms),
+      end_time_ms: num(f.end_time_ms, f.child_end_ms, f.parent_end_ms),
       audio_type: f.audio_type as string,
     } as Hit;
   });
