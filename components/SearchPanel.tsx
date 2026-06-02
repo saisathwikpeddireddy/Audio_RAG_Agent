@@ -18,53 +18,68 @@ function fmtTime(s: number): string {
   return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
+// One matched child sentence inside a paragraph, with its precise audio offset.
+interface Match {
+  text: string;
+  startMs: number; // child_start_ms — where click-to-seek jumps to
+}
+
 // Small-to-Big: one card per PARENT paragraph. It plays the whole paragraph for
-// context, but visually emphasizes the exact child sentence(s) that matched.
+// context, but emphasizes the matched child sentence(s) — and each highlight is
+// click-to-seek, jumping the audio to that sentence's exact start.
 interface CardData {
   key: string; // parent_id
   filePath: string;
-  startMs: number; // parent span (playback)
+  startMs: number; // parent span (full-paragraph playback)
   endMs: number;
-  parentText: string; // full paragraph rendered in the card
-  childTexts: string[]; // matched sentence(s), highlighted within the paragraph
-  score: number; // best matching child score
+  parentText: string;
+  matches: Match[];
+  score: number;
   source: string;
   color: string;
 }
 
-// Split a paragraph into segments, marking the spans that match a retrieved child
-// sentence. Powers the typographical hierarchy: muted context + emphasized match.
-function highlightSegments(
-  parentText: string,
-  childTexts: string[]
-): Array<{ text: string; hit: boolean }> {
+interface Segment {
+  text: string;
+  hit: boolean;
+  startMs?: number; // present on hit segments — the seek target
+}
+
+// Split a paragraph into segments, tagging the spans that match a retrieved child
+// sentence with that sentence's start offset. Powers both the typographical
+// hierarchy (muted context + emphasized match) and click-to-seek.
+function highlightSegments(parentText: string, matches: Match[]): Segment[] {
   const lower = parentText.toLowerCase();
-  const ranges: Array<[number, number]> = [];
-  for (const ct of childTexts) {
-    const needle = ct.trim().toLowerCase();
+  const ranges: Array<[number, number, number]> = []; // [start, end, startMs]
+  for (const m of matches) {
+    const needle = m.text.trim().toLowerCase();
     if (!needle) continue;
     let from = 0;
     let idx: number;
     while ((idx = lower.indexOf(needle, from)) !== -1) {
-      ranges.push([idx, idx + needle.length]);
+      ranges.push([idx, idx + needle.length, m.startMs]);
       from = idx + needle.length;
     }
   }
   if (!ranges.length) return [{ text: parentText, hit: false }];
 
   ranges.sort((a, b) => a[0] - b[0]);
-  const merged: Array<[number, number]> = [];
+  const merged: Array<[number, number, number]> = [];
   for (const r of ranges) {
     const last = merged[merged.length - 1];
-    if (last && r[0] <= last[1]) last[1] = Math.max(last[1], r[1]);
-    else merged.push([...r]);
+    if (last && r[0] <= last[1]) {
+      last[1] = Math.max(last[1], r[1]);
+      last[2] = Math.min(last[2], r[2]); // earliest quote start in the merged span
+    } else {
+      merged.push([...r]);
+    }
   }
 
-  const segs: Array<{ text: string; hit: boolean }> = [];
+  const segs: Segment[] = [];
   let cursor = 0;
-  for (const [s, e] of merged) {
+  for (const [s, e, ms] of merged) {
     if (s > cursor) segs.push({ text: parentText.slice(cursor, s), hit: false });
-    segs.push({ text: parentText.slice(s, e), hit: true });
+    segs.push({ text: parentText.slice(s, e), hit: true, startMs: ms });
     cursor = e;
   }
   if (cursor < parentText.length) segs.push({ text: parentText.slice(cursor), hit: false });
@@ -72,44 +87,42 @@ function highlightSegments(
 }
 
 // A self-contained, skimmable audio paragraph. Header (source · timestamp · %
-// match), the full paragraph with the matched sentence(s) emphasized over muted
-// context, and its own Play / Download / Pin controls.
+// match), the full paragraph with matched sentence(s) emphasized over muted
+// context (each highlight is click-to-seek), and Play / Download controls.
 function AudioResultCard({
   data,
   index,
   focused,
   active,
   isPlaying,
-  pinned,
   registerRef,
   onFocus,
   onTogglePlay,
   onDownload,
-  onTogglePin,
+  onSeek,
 }: {
   data: CardData;
   index: number;
   focused: boolean;
   active: boolean;
   isPlaying: boolean;
-  pinned: boolean;
   registerRef: (index: number, el: HTMLDivElement | null) => void;
   onFocus: (index: number) => void;
   onTogglePlay: (index: number) => void;
   onDownload: (index: number) => void;
-  onTogglePin: (index: number) => void;
+  onSeek: (index: number, childStartMs: number) => void;
 }) {
   const startSec = data.startMs / 1000;
   const endSec = data.endMs / 1000;
   const segments = useMemo(
-    () => highlightSegments(data.parentText, data.childTexts),
-    [data.parentText, data.childTexts]
+    () => highlightSegments(data.parentText, data.matches),
+    [data.parentText, data.matches]
   );
 
   return (
     <motion.div
       ref={(el) => registerRef(index, el)}
-      className={`rcard${focused ? " focused" : ""}${pinned ? " pinned" : ""}`}
+      className={`rcard${focused ? " focused" : ""}`}
       onMouseDown={() => onFocus(index)}
       initial={{ opacity: 0, y: 14 }}
       animate={{ opacity: 1, y: 0 }}
@@ -125,22 +138,29 @@ function AudioResultCard({
           {fmtTime(startSec)} – {fmtTime(endSec)}
         </span>
         <span className="rcard-score">{data.score}%</span>
-        <button
-          type="button"
-          className={`rcard-pin${pinned ? " on" : ""}`}
-          onClick={() => onTogglePin(index)}
-          aria-pressed={pinned}
-        >
-          {pinned ? "★ Saved" : "☆ Pin"}
-        </button>
       </div>
 
       <p className="rcard-text">
-        {segments.map((seg, i) => (
-          <span key={i} className={seg.hit ? "ctx-hit" : "ctx-muted"}>
-            {seg.text}
-          </span>
-        ))}
+        {segments.map((seg, i) =>
+          seg.hit ? (
+            <button
+              key={i}
+              type="button"
+              className="ctx-hit"
+              title="Jump to this moment"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSeek(index, seg.startMs ?? data.startMs);
+              }}
+            >
+              {seg.text}
+            </button>
+          ) : (
+            <span key={i} className="ctx-muted">
+              {seg.text}
+            </span>
+          )
+        )}
       </p>
 
       <div className="rcard-actions">
@@ -152,16 +172,6 @@ function AudioResultCard({
         </button>
       </div>
     </motion.div>
-  );
-}
-
-// The keyboard legend, shown only while the Extraction Tray is up (no static
-// clutter in the main flow).
-function ShortcutLegend() {
-  return (
-    <span className="tray-legend">
-      <kbd>J</kbd>/<kbd>K</kbd> nav · <kbd>Space</kbd> play · <kbd>D</kbd> download · <kbd>P</kbd> pin
-    </span>
   );
 }
 
@@ -179,22 +189,18 @@ export default function SearchPanel({
   const [hits, setHits] = useState<Hit[]>([]);
   const [answer, setAnswer] = useState("");
 
-  // Playback: a single hidden <audio> plays one chunk at a time, seeking into the
-  // source file and auto-pausing at the hit's end. No global stitched reel.
+  // Playback: a single hidden <audio> plays one paragraph at a time, seeking into
+  // the source file and auto-pausing at the paragraph's end.
   const [playingIndex, setPlayingIndex] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Keyboard-first navigation.
   const [focusedIndex, setFocusedIndex] = useState(-1);
 
-  // The Extraction Tray: staged quotes for batch markdown export.
-  const [pins, setPins] = useState<CardData[]>([]);
-  const [copied, setCopied] = useState(false);
-
   const audioRef = useRef<HTMLAudioElement>(null);
   const activeRangeRef = useRef<{ start: number; end: number } | null>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
-  // Latest cards, so stable callbacks (togglePin/keyboard) read current data.
+  // Latest cards, so stable callbacks (keyboard / seek) read current data.
   const cardsRef = useRef<CardData[]>([]);
 
   const readyCount = useMemo(() => library.filter((f) => f.status === "ready").length, [library]);
@@ -206,7 +212,6 @@ export default function SearchPanel({
     return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
   }, [library]);
 
-  // Cards map STRICTLY 1:1 from hits — no overlap math, no dedup, no rollups. The
   // Small-to-Big rollup: reduce the precise sentence hits into a map keyed by
   // parent paragraph, so each card is ONE paragraph that can never duplicate. Key
   // by parent_id, falling back to the parent_text itself (collapses identical
@@ -217,8 +222,8 @@ export default function SearchPanel({
       const key = h.parent_id || h.parent_text || h._id;
       const existing = byParent.get(key);
       if (existing) {
-        // Same paragraph → just record the additional matched sentence.
-        if (h.child_text) existing.childTexts.push(h.child_text);
+        // Same paragraph → record the additional matched sentence + its offset.
+        if (h.child_text) existing.matches.push({ text: h.child_text, startMs: h.child_start_ms });
         existing.score = Math.max(existing.score, Math.round((h._score ?? 0) * 100));
       } else {
         byParent.set(key, {
@@ -227,7 +232,7 @@ export default function SearchPanel({
           startMs: h.parent_start_ms,
           endMs: h.parent_end_ms,
           parentText: h.parent_text || h.child_text || "",
-          childTexts: h.child_text ? [h.child_text] : [],
+          matches: h.child_text ? [{ text: h.child_text, startMs: h.child_start_ms }] : [],
           score: Math.round((h._score ?? 0) * 100),
           // Always run the formatter — stored titles may predate its upgrade.
           source: formatSourceName(h.title || h.file_path),
@@ -260,8 +265,8 @@ export default function SearchPanel({
     cardRefs.current[index] = el;
   }, []);
 
-  // Wire the shared <audio>: reflect play/pause state and auto-pause each chunk
-  // at its end boundary so a card only ever plays its own moment.
+  // Wire the shared <audio>: reflect play/pause state and auto-pause at the
+  // current segment's end boundary.
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
@@ -283,46 +288,59 @@ export default function SearchPanel({
     };
   }, []);
 
-  // Play (or pause) just one card's chunk: seek into its source file at hit.start
-  // and let the auto-pause watcher stop it at hit.end.
+  // Shared helper: point the <audio> at a card's source and start at `fromSec`,
+  // auto-pausing at the paragraph's end.
+  const playFrom = useCallback((index: number, fromSec: number) => {
+    const el = audioRef.current;
+    const card = cardsRef.current[index];
+    if (!el || !card) return;
+    activeRangeRef.current = { start: fromSec, end: card.endMs / 1000 };
+    setPlayingIndex(index);
+
+    const begin = () => {
+      try {
+        el.currentTime = fromSec;
+      } catch {
+        // ignore: will start from 0 if seeking isn't ready yet
+      }
+      el.play().catch(() => {});
+    };
+
+    if (el.getAttribute("data-src") !== card.filePath) {
+      el.src = card.filePath;
+      el.setAttribute("data-src", card.filePath);
+      el.addEventListener("loadedmetadata", begin, { once: true });
+      el.load();
+    } else {
+      begin();
+    }
+  }, []);
+
+  // Play (from the paragraph start) or pause the current card.
   const togglePlay = useCallback(
     (index: number) => {
       const el = audioRef.current;
       const card = cardsRef.current[index];
       if (!el || !card) return;
-      const startSec = card.startMs / 1000;
-      const endSec = card.endMs / 1000;
-
       if (playingIndex === index && !el.paused) {
         el.pause();
         return;
       }
-
-      activeRangeRef.current = { start: startSec, end: endSec };
-      setPlayingIndex(index);
-
-      const begin = () => {
-        try {
-          el.currentTime = startSec;
-        } catch {
-          // ignore: will start from 0 if seeking isn't ready yet
-        }
-        el.play().catch(() => {});
-      };
-
-      if (el.getAttribute("data-src") !== card.filePath) {
-        el.src = card.filePath;
-        el.setAttribute("data-src", card.filePath);
-        el.addEventListener("loadedmetadata", begin, { once: true });
-        el.load();
-      } else {
-        begin();
-      }
+      playFrom(index, card.startMs / 1000);
     },
-    [playingIndex]
+    [playingIndex, playFrom]
   );
 
-  // Slice a single chunk out and trigger a local WAV download (no inter-clip gap).
+  // Click-to-seek: jump straight to a matched sentence and play from there.
+  const seekToMatch = useCallback(
+    (index: number, childStartMs: number) => {
+      setFocusedIndex(index);
+      playFrom(index, childStartMs / 1000);
+    },
+    [playFrom]
+  );
+
+  // Slice a paragraph out and trigger a local WAV download (no inter-clip gap).
   const downloadChunk = useCallback(async (index: number) => {
     const card = cardsRef.current[index];
     if (!card) return;
@@ -347,16 +365,6 @@ export default function SearchPanel({
     }
   }, []);
 
-  const togglePin = useCallback((index: number) => {
-    setPins((prev) => {
-      const card = cardsRef.current[index];
-      if (!card) return prev;
-      return prev.some((p) => p.key === card.key)
-        ? prev.filter((p) => p.key !== card.key)
-        : [...prev, card];
-    });
-  }, []);
-
   // Keep cardsRef in sync so the stable callbacks above read the latest cards.
   useEffect(() => {
     cardsRef.current = cards;
@@ -374,7 +382,7 @@ export default function SearchPanel({
   }, [focusedIndex]);
 
   // Keyboard-first navigation: J/K + arrows move focus, Space plays the focused
-  // card, D downloads it, P pins it. Ignored while typing in the search box.
+  // card, D downloads it. Ignored while typing in the search box.
   useEffect(() => {
     if (!cards.length) return;
     const onKey = (e: KeyboardEvent) => {
@@ -402,36 +410,11 @@ export default function SearchPanel({
           downloadChunk(idx);
           return idx;
         });
-      } else if (k === "p") {
-        e.preventDefault();
-        setFocusedIndex((i) => {
-          const idx = i < 0 ? 0 : i;
-          togglePin(idx);
-          return idx;
-        });
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [cards.length, togglePlay, downloadChunk, togglePin]);
-
-  // Copy every pinned quote to the clipboard as clean Markdown.
-  const exportPins = useCallback(async () => {
-    if (!pins.length) return;
-    const md = pins
-      .map(
-        (p) =>
-          `- **${p.source}** (${fmtTime(p.startMs / 1000)}–${fmtTime(p.endMs / 1000)}): ${p.parentText}`
-      )
-      .join("\n");
-    try {
-      await navigator.clipboard.writeText(md);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setError("Couldn't access the clipboard — copy is blocked in this context.");
-    }
-  }, [pins]);
+  }, [cards.length, togglePlay, downloadChunk]);
 
   async function run(override?: string) {
     const q = (override ?? query).trim();
@@ -452,7 +435,6 @@ export default function SearchPanel({
     setError("");
     setHits([]);
     setAnswer("");
-    setPins([]);
     setFocusedIndex(-1);
 
     try {
@@ -564,49 +546,19 @@ export default function SearchPanel({
                 focused={i === focusedIndex}
                 active={i === playingIndex}
                 isPlaying={i === playingIndex && isPlaying}
-                pinned={pins.some((p) => p.key === c.key)}
                 registerRef={registerRef}
                 onFocus={setFocusedIndex}
                 onTogglePlay={togglePlay}
                 onDownload={downloadChunk}
-                onTogglePin={togglePin}
+                onSeek={seekToMatch}
               />
             ))}
           </div>
         </div>
       )}
 
-      {/* One hidden <audio>, driven imperatively to play a single chunk at a time. */}
+      {/* One hidden <audio>, driven imperatively to play a single paragraph. */}
       <audio ref={audioRef} style={{ display: "none" }} />
-
-      {/* The Extraction Tray: slides up once at least one quote is pinned. Also
-          hosts the keyboard legend, so shortcuts surface only when relevant. */}
-      <AnimatePresence>
-        {pins.length > 0 && (
-          <motion.div
-            className="tray"
-            initial={{ y: 140 }}
-            animate={{ y: 0 }}
-            exit={{ y: 140 }}
-            transition={{ type: "spring", stiffness: 320, damping: 30 }}
-          >
-            <div className="tray-inner">
-              <span className="tray-count">
-                {pins.length} Insight{pins.length === 1 ? "" : "s"} Staged
-              </span>
-              <ShortcutLegend />
-              <div className="tray-actions">
-                <button type="button" className="tray-clear" onClick={() => setPins([])}>
-                  Clear
-                </button>
-                <button type="button" className="tray-export" onClick={exportPins}>
-                  {copied ? "✓ Copied" : "⬇ Export"}
-                </button>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

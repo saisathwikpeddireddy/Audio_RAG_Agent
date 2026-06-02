@@ -740,10 +740,6 @@ button.link:disabled {
   transform: translate(-1px, -1px);
 }
 
-.rcard.pinned {
-  background: #fffdf2;
-}
-
 .rcard-head {
   display: flex;
   align-items: center;
@@ -787,30 +783,6 @@ button.link:disabled {
   box-shadow: 1px 1px 0 var(--ink);
 }
 
-.rcard-pin {
-  flex: none;
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--ink);
-  background: var(--surface);
-  border: 2px solid var(--ink);
-  border-radius: 8px;
-  padding: 4px 10px;
-  cursor: pointer;
-  box-shadow: 1px 1px 0 var(--ink);
-  transition: transform 0.08s ease, box-shadow 0.08s ease, background 0.1s ease;
-}
-
-.rcard-pin:hover {
-  transform: translate(-1px, -1px);
-  box-shadow: 2px 2px 0 var(--ink);
-}
-
-.rcard-pin.on {
-  background: var(--yellow);
-}
-
 .rcard-text {
   margin: 0;
   font-size: 14.5px;
@@ -824,9 +796,30 @@ button.link:disabled {
   color: #4b5563; /* gray-600 — WCAG-safe muted context on white */
 }
 
+/* The matched sentence(s) are click-to-seek buttons rendered inline. Reset the
+   native button chrome so they read as text, then add a clear-but-subtle
+   affordance: pointer cursor + a pale yellow wash and underline on hover. */
 .rcard-text .ctx-hit {
+  display: inline;
+  margin: 0;
+  padding: 0 1px;
+  border: none;
+  background: transparent;
+  font: inherit;
   color: #000;
   font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+  text-underline-offset: 3px;
+  transition: background-color 0.1s ease;
+}
+
+.rcard-text .ctx-hit:hover,
+.rcard-text .ctx-hit:focus-visible {
+  background: #fef08a; /* pale yellow */
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  outline: none;
 }
 
 /* ---- Per-card actions ---- */
@@ -866,107 +859,6 @@ button.rcard-btn.play {
 button.rcard-btn.dl {
   background: var(--surface);
   color: var(--ink);
-}
-
-/* ---- The Extraction Tray (sticky batch-export footer) ---- */
-.tray {
-  position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 45;
-  display: flex;
-  justify-content: center;
-  padding: 14px 16px calc(14px + env(safe-area-inset-bottom, 0px));
-  pointer-events: none;
-}
-
-.tray-inner {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: min(900px, 100%);
-  padding: 12px 16px;
-  background: var(--ink);
-  color: #fff;
-  border: 2px solid var(--ink);
-  border-radius: 14px;
-  box-shadow: var(--shadow-lg);
-}
-
-.tray-count {
-  flex: none;
-  font-family: var(--font-display), sans-serif;
-  font-size: 15px;
-  font-weight: 700;
-  color: #fff;
-}
-
-/* Keyboard legend, only visible here (no static clutter in the main flow). */
-.tray-legend {
-  font-family: var(--font-mono), monospace;
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tray-legend kbd {
-  font-family: var(--font-mono), monospace;
-  font-weight: 700;
-  font-size: 10px;
-  color: #fff;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  border-radius: 5px;
-  padding: 1px 5px;
-}
-
-/* Hide the legend on narrow screens so the count + actions always fit. */
-@media (max-width: 640px) {
-  .tray-legend {
-    display: none;
-  }
-}
-
-.tray-actions {
-  margin-left: auto;
-  flex: none;
-  display: flex;
-  gap: 10px;
-}
-
-button.tray-clear {
-  font-family: var(--font-mono), monospace;
-  font-size: 12px;
-  font-weight: 700;
-  color: #fff;
-  background: transparent;
-  border: 2px solid #fff;
-  border-radius: 10px;
-  padding: 8px 14px;
-  cursor: pointer;
-}
-
-button.tray-export {
-  font-family: var(--font-display), sans-serif;
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ink);
-  background: var(--yellow);
-  border: 2px solid #fff;
-  border-radius: 10px;
-  padding: 9px 18px;
-  cursor: pointer;
-  box-shadow: 2px 2px 0 #000;
-  transition: transform 0.06s ease;
-}
-
-button.tray-export:active {
-  transform: translate(2px, 2px);
-  box-shadow: none;
 }
 
 /* ---- Raw-sources accordion ("inspect the receipt") ---- */
