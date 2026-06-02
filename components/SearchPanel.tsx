@@ -37,6 +37,21 @@ function cleanSourceName(path?: string): string {
     .trim();
 }
 
+// Reduce a source to its first meaningful segment for display. Raw indexed names
+// often carry trailing junk ("My Talk - Audio Overview - 2026-01-15T09:22Z - a3f9…").
+// Split on " - " separators, keep the first chunk, and scrub any stray ISO/UTC
+// date or long hex hash that survived, so the card shows just the real title.
+function formatSourceLabel(path?: string): string {
+  const name = cleanSourceName(path); // decoded, extension-stripped, _ → space
+  const first = name.split(/\s+-\s+/)[0]?.trim() || name;
+  const scrubbed = first
+    .replace(/\b\d{4}-\d{2}-\d{2}(?:[t ]\d{2}:\d{2}(?::\d{2})?z?)?\b/gi, "")
+    .replace(/\b[0-9a-f]{8,}\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return scrubbed || first || name;
+}
+
 function fmtTime(s: number): string {
   if (!Number.isFinite(s) || s < 0) return "0:00";
   const m = Math.floor(s / 60);
@@ -90,32 +105,39 @@ function audioDuration(audioRef: React.RefObject<HTMLAudioElement>): number {
 }
 
 // The moving playhead. Isolated leaf so its per-frame position updates don't
-// touch the timeline blocks.
+// touch the timeline blocks. Prefers the known reel duration (set at stitch time)
+// so the bar is correctly scaled before the <audio> reports its own metadata.
 const Playhead = memo(function Playhead({
   audioRef,
   playing,
+  duration,
 }: {
   audioRef: React.RefObject<HTMLAudioElement>;
   playing: boolean;
+  duration: number;
 }) {
   const time = usePlaybackTime(audioRef, playing);
-  const dur = audioDuration(audioRef);
+  const dur = duration || audioDuration(audioRef);
   const frac = dur ? Math.min(1, time / dur) : 0;
   return <div className="playhead" style={{ left: `${frac * 100}%` }} />;
 });
 
 // The MM:SS / MM:SS readout. Isolated so its updates don't re-render the panel.
+// Uses the pre-computed reel duration so it shows e.g. 0:00 / 1:45 immediately,
+// not 0:00 / 0:00 until the first play loads the <audio> metadata.
 const TransportClock = memo(function TransportClock({
   audioRef,
   playing,
+  duration,
 }: {
   audioRef: React.RefObject<HTMLAudioElement>;
   playing: boolean;
+  duration: number;
 }) {
   const time = usePlaybackTime(audioRef, playing);
   return (
     <span className="transport-time">
-      {fmtTime(time)} / {fmtTime(audioDuration(audioRef))}
+      {fmtTime(time)} / {fmtTime(duration || audioDuration(audioRef))}
     </span>
   );
 });
@@ -272,6 +294,7 @@ export default function SearchPanel({
   const [rawClips, setRawClips] = useState(0);
   const [answer, setAnswer] = useState("");
   const [audioUrl, setAudioUrl] = useState("");
+  const [reelDuration, setReelDuration] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [showRaw, setShowRaw] = useState(false);
   const [reelTranscript, setReelTranscript] = useState<Word[]>([]);
@@ -380,6 +403,7 @@ export default function SearchPanel({
     setTranscribing(false);
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioUrl("");
+    setReelDuration(0);
 
     try {
       setStage("Digging through your audio…");
@@ -405,9 +429,11 @@ export default function SearchPanel({
       }
 
       setStage("Cutting your highlight reel…");
-      const { buffer } = await stitchClips(data.clips, GAP_MS);
+      const { buffer, durationSec } = await stitchClips(data.clips, GAP_MS);
       const wav = audioBufferToWav(buffer);
       setAudioUrl(URL.createObjectURL(wav));
+      // Show the total length right away (clips + gaps), before <audio> metadata loads.
+      setReelDuration(durationSec);
       setStage("");
 
       // JIT karaoke: send the freshly-stitched reel to Groq Whisper for
@@ -529,7 +555,7 @@ export default function SearchPanel({
                 onDownloadClip={onDownloadClip}
               />
             ))}
-            {audioUrl && <Playhead audioRef={audioRef} playing={playing} />}
+            {audioUrl && <Playhead audioRef={audioRef} playing={playing} duration={reelDuration} />}
           </div>
 
           {/* Karaoke teleprompter: highlights the word currently being spoken,
@@ -556,7 +582,7 @@ export default function SearchPanel({
           >
             {playing ? "❚❚ PAUSE" : "▶ PLAY"}
           </motion.button>
-          <TransportClock audioRef={audioRef} playing={playing} />
+          <TransportClock audioRef={audioRef} playing={playing} duration={reelDuration} />
           <a className="dl transport-dl" href={audioUrl} download="highlight_reel.wav">
             ↓ WAV
           </a>
@@ -600,7 +626,7 @@ export default function SearchPanel({
                       <div>{h.child_text}</div>
                       <div className="meta">
                         <span className="match-badge">{pct}% match</span>
-                        <span className="hit-name">{cleanSourceName(h.file_path)}</span>
+                        <span className="hit-name">{formatSourceLabel(h.file_path)}</span>
                         <span className="hit-time">
                           {fmtTime(h.start_time_ms / 1000)}–{fmtTime(h.end_time_ms / 1000)}
                         </span>

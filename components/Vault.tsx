@@ -76,7 +76,8 @@ export default function Vault({
                         {prettyName(f.filename)}
                       </div>
                       <div className="muted vault-meta">
-                        {f.status === "ready" && `${f.children} bits · ${f.audio_type}`}
+                        {f.status === "ready" &&
+                          `${f.children} ${f.children === 1 ? "segment" : "segments"} · ${f.audio_type}`}
                         {f.status === "processing" && "Listening & Indexing…"}
                         {f.status === "failed" && (f.error || "failed")}
                       </div>

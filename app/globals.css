@@ -855,14 +855,14 @@ a.dl {
    clip's transcript so you can read along. */
 .teleprompter {
   margin-top: 12px;
-  padding: 14px 16px;
+  padding: 24px;
   min-height: 56px;
   display: flex;
   align-items: center;
   font-family: var(--font-mono), monospace;
   font-size: 14px;
-  line-height: 1.5;
-  color: #1f2937;
+  line-height: 1.7;
+  color: #000000;
   background: #fef9c3;
   border: 2px solid var(--ink);
   border-radius: 10px;
@@ -883,7 +883,9 @@ a.dl {
   margin-right: 5px;
   padding: 0 2px;
   border-radius: 4px;
-  color: #6b7280;
+  /* Darker gray for the not-yet-spoken words so they stay legible against the
+     yellow box; the active word flips to solid black on a brighter highlight. */
+  color: #374151;
   transition: color 0.1s ease, background-color 0.1s ease;
 }
 
