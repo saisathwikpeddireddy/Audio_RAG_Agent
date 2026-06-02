@@ -8,7 +8,7 @@
 import { NextResponse } from "next/server";
 import { waitUntil } from "@vercel/functions";
 import { transcribeUrlWords } from "@/lib/groq";
-import { buildSentences, buildChildRecords } from "@/lib/chunking";
+import { buildSentences, assembleChunks, buildChildRecords } from "@/lib/chunking";
 import { upsertChildren } from "@/lib/pinecone";
 import { suggestQuestions } from "@/lib/suggest";
 import { saveLibraryEntry } from "@/lib/library";
@@ -42,15 +42,18 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
 // The actual transcription + indexing work. Returns the children count and the
 // grounded example questions, or throws on failure / timeout.
 async function indexFile(url: string, fileId: string, type: string, title: string) {
-  // Word-level timestamps → strict sentence chunks, each with a precise boundary.
+  // Word-level timestamps → sentences → overlapping ~25s chunks with anchored
+  // starts, each a self-contained narrative with absolute boundaries.
   const words = await transcribeUrlWords(url);
   if (!words.length) throw new Error("No speech detected in this audio.");
 
   const sentences = buildSentences(words);
-  const records = buildChildRecords(sentences, url, fileId, type, title);
+  const chunks = assembleChunks(sentences);
+  const records = buildChildRecords(chunks, url, fileId, type, title);
   if (records.length) await upsertChildren(records);
 
-  const transcript = sentences.map((s) => s.text).join("\n");
+  // Suggestions read the clean, de-overlapped sentence transcript.
+  const transcript = sentences.map((s) => s.text).join(" ");
   const suggestions = await suggestQuestions(transcript);
   return { children: records.length, suggestions };
 }
