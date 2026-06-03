@@ -20,9 +20,13 @@ interface Item {
 export default function Dropzone({
   compact,
   onIndexed,
+  onUploaded,
 }: {
   compact: boolean;
   onIndexed?: (entry: LibraryFile) => void;
+  // Called after each ingest resolves so the parent can immediately re-fetch the
+  // live file list (which then begins polling for the indexing → ready flip).
+  onUploaded?: () => void | Promise<void>;
 }) {
   const [items, setItems] = useState<Item[]>([]);
   const [hover, setHover] = useState(false);
@@ -57,9 +61,11 @@ export default function Dropzone({
 
         const entry = data.entry as LibraryFile | undefined;
         if (entry) {
-          // Hand it off to the capsule stack and drop our in-flight row.
+          // Optimistically hand it to the capsule stack, then force a live re-fetch
+          // so the parent picks up the manifest entry and starts status polling.
           patch(file.name, { fileId: entry.file_id, local: "queued" });
           onIndexed?.(entry);
+          await onUploaded?.();
           setItems((prev) => prev.filter((it) => it.name !== file.name));
         }
       } catch (e) {

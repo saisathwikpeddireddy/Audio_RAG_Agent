@@ -14,18 +14,21 @@ export default function Home() {
   const [vaultOpen, setVaultOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  async function refresh() {
+  // Pull the live library. `no-store` is critical: the client polls this for
+  // status, and a browser-cached response is what forced users to hard-refresh
+  // to see uploads flip from "indexing" → "ready".
+  const refresh = useCallback(async () => {
     try {
-      const d = await fetch("/api/files").then((r) => r.json());
+      const d = await fetch("/api/files", { cache: "no-store" }).then((r) => r.json());
       if (Array.isArray(d.library)) setLibrary(d.library);
     } catch {
       // ignore transient fetch errors; the next poll will retry
     }
-  }
+  }, []);
 
   useEffect(() => {
     refresh();
-  }, []);
+  }, [refresh]);
 
   // Poll while any file is still processing, so status flips without a refresh.
   const processing = library.some((f) => f.status === "processing");
@@ -42,7 +45,7 @@ export default function Home() {
         pollRef.current = null;
       }
     };
-  }, [processing]);
+  }, [processing, refresh]);
 
   // Auto-select files as they become ready; drop ids that vanish from the library.
   useEffect(() => {
@@ -137,7 +140,7 @@ export default function Home() {
         {/* Empty state (no sources): only the giant dropzone. With sources: the
             dropzone collapses to a small "+ Add more audio" pill, and the source
             pills + search bar appear below it. */}
-        <Dropzone compact={hasFiles} onIndexed={onIndexed} />
+        <Dropzone compact={hasFiles} onIndexed={onIndexed} onUploaded={refresh} />
 
         {hasFiles && (
           <>
