@@ -2,18 +2,6 @@
 
 import type { AudioChunkRecord } from "@/types/pinecone";
 
-export interface Segment {
-  start: number; // seconds
-  end: number; // seconds
-  text: string;
-}
-
-export interface Parent {
-  start: number; // seconds
-  end: number; // seconds
-  text: string;
-}
-
 // The Pinecone child-vector schema is centralized in @/types/pinecone so the
 // writer (upsert) and reader (search) can never drift. Re-exported as ChildRecord
 // for existing call sites.

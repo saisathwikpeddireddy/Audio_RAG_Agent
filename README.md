@@ -1,8 +1,8 @@
-# 🎧 Audio RAG Auto-Editor
+# 🎧 Audio RAG Workspace
 
-Upload audio, ask a question in plain English, and get back **a written answer
-plus a seamless highlight reel** stitched from the most relevant moments across
-your files.
+Upload raw audio, search it by intent, and get back **a grounded written answer
+plus a ranked feed of playable audio quotes** — each one a self-contained moment
+you can play, read along to (karaoke-style), and download.
 
 **▶️ Live demo: https://audio-rag-agent-h2xx.vercel.app**
 
@@ -14,70 +14,82 @@ your files.
 ![Gemini](https://img.shields.io/badge/Google-Gemini-4285f4?logo=google)
 
 > Runs entirely on free tiers. No GPU, no local models, no local vector DB — all
-> heavy compute and storage live in managed services.
+> heavy compute and storage live in managed services, and audio is sliced in the
+> browser so nothing is ever re-uploaded.
 
 ---
 
 ## What it does
 
-- **Upload & index** MP3s — transcribed by Groq Whisper, chunked, and embedded
-  into Pinecone (hosted embeddings, no OpenAI cost).
-- **Ask a question** — semantic search retrieves the most relevant moments, and
-  an editor LLM writes a grounded **text answer** *and* picks the exact clip
-  boundaries for a **highlight reel**.
-- **Pick your sources** — every indexed file is listed with a checkbox so you
-  can scope a query to a subset of files (faster + cheaper).
-- **Grounded example questions** — each file gets one-click suggested questions
-  generated from its own transcript.
-- **Browser-side stitching** — the reel is spliced together with the Web Audio
-  API in your browser, so audio is never re-uploaded to build it.
+- **Upload & index** audio — transcribed by Groq Whisper with **word-level
+  timestamps**, split into overlapping sentence chunks, and embedded into
+  Pinecone (hosted embeddings, no OpenAI cost).
+- **Search by intent** — semantic search retrieves the most relevant moments,
+  and an LLM writes a concise **answer grounded only in the retrieved chunks**.
+- **Atomic result cards** — every retrieved chunk becomes its own card (strict
+  1:1), showing its timestamp range, a match score, and the exact transcript.
+- **Tactile playback** — each card plays *only its own* segment of the source
+  audio, with a **karaoke highlight** sweeping the words in sync and an animated
+  **waveform** that dances only while that card is playing.
+- **Pick your sources** — indexed files appear as toggle pills so you can scope a
+  query to a subset (faster + cheaper); a **Vault** drawer manages/deletes files.
+- **Grounded suggestions** — each file gets one-click example questions generated
+  from its own transcript.
+- **Keyboard-first** — `J`/`K` (or ↑/↓) to move between cards, `Space` to
+  play/pause, `D` to download the focused card.
+- **Browser-side audio** — playback and per-card WAV downloads are sliced with
+  the Web Audio API client-side; the source audio is never re-uploaded.
 
-## Architecture (web app)
+## Architecture
 
 ```
-                       ┌─────────────── Vercel (Next.js) ───────────────┐
- MP3 ──client upload──►│ Blob storage                                    │
-                       │   │                                             │
-                       │   └─►/api/ingest ─► Groq Whisper ─► parent/child │
-                       │                       chunking ─► Pinecone upsert│
- question ────────────►│ /api/search ─► Pinecone top-K ─► editor LLM ─────┤─► { answer, clips }
-                       └─────────────────────────────────────────────────┘
-                                                                  │
-                          clips ─► Web Audio API splice + crossfade ─► highlight_reel.wav
+                        ┌──────────────── Vercel (Next.js) ────────────────┐
+ audio ──client upload─►│ Blob storage                                       │
+                        │   │                                                │
+                        │   └─► /api/ingest ─► Groq Whisper (word timestamps)│
+                        │                       ─► sliding-window chunking    │
+                        │                       ─► Pinecone upsert            │
+ query ────────────────►│ /api/search ─► Pinecone top-K ─► answer LLM ────────┤─► { answer, hits }
+                        └────────────────────────────────────────────────────┘
+                                                                       │
+ hits ─1:1─► result cards ─► Web Audio API (seek + slice per chunk) ─► play / download.wav
 ```
 
 | Stage | Service |
 |-------|---------|
-| Transcription (segment timestamps) | **Groq** `whisper-large-v3-turbo` |
+| Transcription (word timestamps) | **Groq** `whisper-large-v3-turbo` |
 | Embeddings | **Pinecone** integrated `llama-text-embed-v2` (free Starter) |
 | Vector DB | **Pinecone** serverless |
-| Editor + answer | **Gemini** `gemini-2.5-flash`, automatic **Groq Llama** fallback |
+| Answer LLM | **Gemini** `gemini-2.5-flash`, automatic **Groq Llama** fallback |
 | File storage | **Vercel Blob** |
-| Audio stitching (web) | **Web Audio API** (browser) |
-| Audio stitching (CLI) | **pydub** + ffmpeg (local) |
+| Audio playback + slicing | **Web Audio API** (browser) |
 | Hosting | **Vercel** |
 
 ### Chunking strategy
-**Dynamic-window Parent-Child RAG.** Whisper segments are grouped into *parent*
-windows that grow toward a ~30s target and commit only at a **natural pause**
-(timestamp gap > 0.5s) or a **sentence terminal** — with a 45s hard cap — so a
-parent is dynamically sized but never sliced mid-word or mid-thought. Each
-parent is split into *child* sentences; only the children are embedded for
-precise semantic matching, but every child stores its **parent's** wide time
-window, so retrieval splices a complete thought instead of a clipped fragment.
 
-### Adjacent-clip fusion
-After the editor picks clip boundaries, the retriever **fuses** clips on the
-same file whose windows overlap or sit within ~0.75s of each other into one
-continuous segment. This drops duplicate parent windows and heals tiny gaps, so
-the highlight reel plays as an uninterrupted stream rather than crossfading a
-seam mid-thought.
+**Sliding-window sentence chunking with anchor look-backs** (`lib/chunking.ts`):
+
+1. **Sentence tokenization** — Whisper's word stream is grouped into
+   grammatically-complete sentences, finalized *only* on terminal punctuation
+   (`.`, `?`, `!`) — never on commas or pauses. Each sentence keeps word-precise
+   `start`/`end` boundaries.
+2. **Overlapping windows** — sentences are assembled into ~25s chunks; the next
+   chunk re-seeds with the **last sentence of the previous chunk**, so context
+   overlaps across boundaries.
+3. **Anchor check** — if a chunk would start on a conjunction or continuation
+   pronoun (*And, But, So, It, They, This…*), it steps back to prepend earlier
+   sentences until it begins on a strong anchor word — so every chunk reads as a
+   self-contained narrative with a proper start.
+
+The DB schema is **flat**: one vector per chunk, with `start_time_ms` /
+`end_time_ms` as that chunk's absolute boundaries. The frontend maps `hits`
+strictly 1:1 to cards — no client-side grouping or de-duplication.
 
 ---
 
-## Run the web app
+## Run it
 
-The app is a Next.js project at the repo root, deployed on Vercel.
+A Next.js app at the repo root, deployed on Vercel.
 
 ```bash
 npm install
@@ -87,43 +99,26 @@ npm run dev                  # http://localhost:3000
 
 **Required env vars:** `GROQ_API_KEY`, `PINECONE_API_KEY`, `GEMINI_API_KEY`, and
 `BLOB_READ_WRITE_TOKEN` (from a Vercel Blob store). Optional overrides
-(`GEMINI_MODEL`, `EDITOR_PROVIDER=groq`, `TOP_K`, …) are listed in
+(`GEMINI_MODEL`, `EDITOR_PROVIDER=groq`, `TOP_K`, `PINECONE_*`, …) are listed in
 `.env.example`.
 
 **Deploy:** import the repo on Vercel and connect a **Blob** store under the
 project's Storage tab — `BLOB_READ_WRITE_TOKEN` is injected automatically.
 
-### Key files (web)
-- `app/page.tsx` — tabs + shared library state.
-- `components/Uploader.tsx` — client upload to Blob → `/api/ingest`.
-- `components/QueryPanel.tsx` — source selection, example chips, answer + reel.
-- `app/api/{upload,ingest,search,files}/route.ts` — serverless endpoints.
-- `lib/` — `chunking`, `pinecone`, `groq`, `editor`, `suggest`, `library`,
-  `stitch`, `config`, `types`.
+### Project layout
 
----
-
-## Run the Python CLI (original pipeline)
-
-The repo also includes the standalone CLI the web app was ported from.
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env          # fill in your keys
-brew install ffmpeg           # pydub needs ffmpeg (or: apt-get install ffmpeg)
-
-# 1. Drop .mp3 files into data/input/
-python ingest.py              # transcribe + embed + upsert
-python main.py "what did they say about the roadmap?"   # -> highlight_reel.mp3
-```
-
-### Swappable providers (`.env`)
-- **Embeddings** — default `EMBED_PROVIDER=pinecone` (free, hosted). Set
-  `EMBED_PROVIDER=openai` for `text-embedding-3-small` (paid `OPENAI_API_KEY`).
-- **Editor LLM** — default `EDITOR_PROVIDER=gemini`; set `EDITOR_PROVIDER=groq`
-  to reuse your Groq key with a Llama model.
-
-### Key files (CLI)
-- `config.py` · `clients.py` · `chunking.py` · `ingest.py` · `retrieve.py` ·
-  `stitch.py` · `main.py`
+- `app/page.tsx` — shared library state, status polling, empty-state logic.
+- `app/layout.tsx` · `app/globals.css` — shell + neubrutalist styling.
+- `app/api/`
+  - `upload/route.ts` — Vercel Blob client-upload handshake.
+  - `ingest/route.ts` — transcribe → chunk → embed (background `waitUntil`, 202).
+  - `search/route.ts` — Pinecone query → answer LLM → `{ answer, hits }`.
+  - `files/route.ts` · `files/[id]/route.ts` — list / delete (vectors + blob + manifest).
+- `components/`
+  - `Dropzone.tsx` — drag-and-drop upload pipeline.
+  - `CapsuleStack.tsx` — source toggle pills.
+  - `SearchPanel.tsx` — search box, suggestion chips, result cards, karaoke + waveform.
+  - `Vault.tsx` · `HoldToDelete.tsx` — file management drawer + safe delete.
+- `lib/` — `chunking`, `groq`, `pinecone`, `editor`, `suggest`, `library`,
+  `stitch`, `format`, `errors`, `config`, `types`.
+- `types/pinecone.ts` — the single source of truth for the vector metadata schema.
