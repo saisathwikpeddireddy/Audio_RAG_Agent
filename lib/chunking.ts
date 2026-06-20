@@ -133,12 +133,14 @@ export function buildChildRecords(
   filePath: string,
   fileId: string,
   audioType: string,
-  title: string
+  title: string,
+  sessionId: string
 ): ChildRecord[] {
   return chunks.map((c, i) => ({
     _id: `${fileId}-c${i}`,
     file_path: filePath,
     file_id: fileId,
+    session_id: sessionId,
     title,
     child_text: c.text,
     start_time_ms: c.startMs,

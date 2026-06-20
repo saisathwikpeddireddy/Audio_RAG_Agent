@@ -6,6 +6,7 @@ import Dropzone from "@/components/Dropzone";
 import CapsuleStack from "@/components/CapsuleStack";
 import SearchPanel from "@/components/SearchPanel";
 import Vault from "@/components/Vault";
+import { sessionHeaders } from "@/lib/session";
 import type { LibraryFile } from "@/lib/types";
 
 export default function Home() {
@@ -19,7 +20,9 @@ export default function Home() {
   // to see uploads flip from "indexing" → "ready".
   const refresh = useCallback(async () => {
     try {
-      const d = await fetch("/api/files", { cache: "no-store" }).then((r) => r.json());
+      const d = await fetch("/api/files", { cache: "no-store", headers: sessionHeaders() }).then(
+        (r) => r.json()
+      );
       if (Array.isArray(d.library)) setLibrary(d.library);
     } catch {
       // ignore transient fetch errors; the next poll will retry
@@ -72,7 +75,10 @@ export default function Home() {
     // Optimistically drop it so the capsule/vault row animates out immediately.
     setLibrary((prev) => prev.filter((f) => f.file_id !== fileId));
     try {
-      const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`, { method: "DELETE" });
+      const res = await fetch(`/api/files/${encodeURIComponent(fileId)}`, {
+        method: "DELETE",
+        headers: sessionHeaders(),
+      });
       const data = await res.json().catch(() => ({}));
       if (res.ok && Array.isArray(data.library)) {
         setLibrary(data.library);
@@ -91,7 +97,7 @@ export default function Home() {
       try {
         const res = await fetch("/api/ingest", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...sessionHeaders() },
           body: JSON.stringify({
             url: file.blob_url,
             filename: file.filename,

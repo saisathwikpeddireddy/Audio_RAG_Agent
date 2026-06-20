@@ -33,6 +33,9 @@ you can play, read along to (karaoke-style), and download.
   **waveform** that dances only while that card is playing.
 - **Pick your sources** — indexed files appear as toggle pills so you can scope a
   query to a subset (faster + cheaper); a **Vault** drawer manages/deletes files.
+- **Per-visitor workspaces** — each visitor gets an isolated, sandboxed session
+  (uploads + search are scoped to them), plus a shared read-only **demo corpus**
+  so the app is searchable the moment you land — no upload required.
 - **Grounded suggestions** — each file gets one-click example questions generated
   from its own transcript.
 - **Keyboard-first** — `J`/`K` (or ↑/↓) to move between cards, `Space` to
@@ -85,6 +88,22 @@ The DB schema is **flat**: one vector per chunk, with `start_time_ms` /
 `end_time_ms` as that chunk's absolute boundaries. The frontend maps `hits`
 strictly 1:1 to cards — no client-side grouping or de-duplication.
 
+### Sessions & isolation
+
+The public demo is multi-tenant without auth or a database:
+
+- **Per-visitor session** — a `sid` cookie (24h) scopes everything. Every vector
+  carries a `session_id`; Blob uploads and the JSON manifest live under
+  `library/{sid}/`. Search is filtered to `session_id ∈ { yours, "demo" }`, so
+  visitors never see or delete each other's files.
+- **Shared demo corpus** — the special `demo` session is pre-seeded and merged
+  read-only into everyone's view, so a first-time visitor can search instantly.
+  Seed it once after deploy (`SEED_SECRET` + `POST /api/seed-demo`).
+- **Auto-expiry** — a daily Vercel Cron (`/api/cleanup`, guarded by
+  `CRON_SECRET`) purges sessions whose newest file is >24h old — deleting their
+  vectors, audio blobs, and manifest — so storage never creeps past the free
+  tier. The `demo` session is never touched.
+
 ---
 
 ## Run it
@@ -99,11 +118,22 @@ npm run dev                  # http://localhost:3000
 
 **Required env vars:** `GROQ_API_KEY`, `PINECONE_API_KEY`, `GEMINI_API_KEY`, and
 `BLOB_READ_WRITE_TOKEN` (from a Vercel Blob store). Optional overrides
-(`GEMINI_MODEL`, `EDITOR_PROVIDER=groq`, `TOP_K`, `PINECONE_*`, …) are listed in
-`.env.example`.
+(`GEMINI_MODEL`, `EDITOR_PROVIDER=groq`, `TOP_K`, `PINECONE_*`, `CRON_SECRET`,
+`SEED_SECRET`, …) are listed in `.env.example`.
 
 **Deploy:** import the repo on Vercel and connect a **Blob** store under the
-project's Storage tab — `BLOB_READ_WRITE_TOKEN` is injected automatically.
+project's Storage tab — `BLOB_READ_WRITE_TOKEN` is injected automatically. The
+cleanup cron in `vercel.json` runs automatically on Vercel.
+
+**Seed the demo corpus (once):** upload a public-domain clip to your Blob store,
+then point the seeder at it so every visitor lands on searchable content:
+
+```bash
+curl -X POST https://<your-app>/api/seed-demo \
+  -H "Authorization: Bearer $SEED_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://<blob-url>/talk.mp3","filename":"The Attention Equation.mp3"}'
+```
 
 ### Project layout
 
@@ -111,14 +141,17 @@ project's Storage tab — `BLOB_READ_WRITE_TOKEN` is injected automatically.
 - `app/layout.tsx` · `app/globals.css` — shell + neubrutalist styling.
 - `app/api/`
   - `upload/route.ts` — Vercel Blob client-upload handshake.
-  - `ingest/route.ts` — transcribe → chunk → embed (background `waitUntil`, 202).
-  - `search/route.ts` — Pinecone query → answer LLM → `{ answer, hits }`.
-  - `files/route.ts` · `files/[id]/route.ts` — list / delete (vectors + blob + manifest).
+  - `ingest/route.ts` — session-scoped kickoff (background `waitUntil`, 202).
+  - `search/route.ts` — Pinecone query (scoped to session + demo) → answer LLM.
+  - `files/route.ts` · `files/[id]/route.ts` — list (merged view) / delete (ownership-checked).
+  - `seed-demo/route.ts` — one-time seeder for the shared demo corpus.
+  - `cleanup/route.ts` — daily cron that purges expired sessions.
 - `components/`
   - `Dropzone.tsx` — drag-and-drop upload pipeline.
   - `CapsuleStack.tsx` — source toggle pills.
   - `SearchPanel.tsx` — search box, suggestion chips, result cards, karaoke + waveform.
   - `Vault.tsx` · `HoldToDelete.tsx` — file management drawer + safe delete.
 - `lib/` — `chunking`, `groq`, `pinecone`, `editor`, `suggest`, `library`,
-  `stitch`, `format`, `errors`, `config`, `types`.
+  `ingestPipeline`, `stitch`, `format`, `errors`, `session` (client) +
+  `sessionServer`, `config`, `types`.
 - `types/pinecone.ts` — the single source of truth for the vector metadata schema.

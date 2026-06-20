@@ -1,17 +1,19 @@
-// Lists every indexed audio file from the Blob-stored library manifest, so the
-// Query tab can show available sources on load.
+// Lists the caller's workspace — their own indexed files plus the shared,
+// read-only demo corpus — from the Blob-stored manifests. The client polls this
+// for live status, so it must never be statically cached.
 
 import { NextResponse } from "next/server";
 import { getLibrary } from "@/lib/library";
+import { sessionIdFromRequest } from "@/lib/sessionServer";
 
 export const runtime = "nodejs";
-// Must never be statically cached — the client polls this for live status.
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const library = await getLibrary();
+    const sid = sessionIdFromRequest(request);
+    const library = await getLibrary(sid);
     return NextResponse.json({ library });
   } catch (error) {
     return NextResponse.json({ library: [], error: (error as Error).message });

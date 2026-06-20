@@ -46,9 +46,11 @@ export interface LibraryFile {
   title?: string; // human-readable display title, computed once at ingest
   blob_url: string;
   audio_type: string;
+  session_id?: string; // owning workspace ("demo" for the shared corpus)
   children: number;
   indexed_at: string; // ISO timestamp
   suggestions: string[];
   status: FileStatus;
   error?: string;
+  readOnly?: boolean; // transient (UI): true for shared demo files
 }

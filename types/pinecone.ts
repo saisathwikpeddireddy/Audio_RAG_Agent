@@ -13,6 +13,7 @@
 export interface AudioChunkMetadata extends Record<string, string | number> {
   file_path: string; // Vercel Blob URL — the browser fetches this to play audio
   file_id: string; // stable per-upload id; used for $in filtering by source
+  session_id: string; // owning workspace; "demo" = shared read-only corpus
   title: string; // human-readable source title, computed once at ingest
   child_text: string; // the embedded sentence (one complete thought)
   start_time_ms: number; // start of the FIRST word in the sentence

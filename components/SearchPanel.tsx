@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
+import { sessionHeaders } from "@/lib/session";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 
 // Must match the capsule accents in CapsuleStack, keyed by the file's position
@@ -415,7 +416,7 @@ export default function SearchPanel({
       setStage("Searching your audio…");
       const res = await fetch("/api/search", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...sessionHeaders() },
         body: JSON.stringify({ query: q, fileIds: selected }),
       });
       const data = await res.json();

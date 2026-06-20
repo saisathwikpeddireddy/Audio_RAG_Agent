@@ -50,17 +50,24 @@ export async function upsertChildren(records: AudioChunkRecord[], batchSize = 90
   }
 }
 
-export async function search(queryText: string, topK: number, fileIds?: string[]): Promise<Hit[]> {
+export async function search(
+  queryText: string,
+  topK: number,
+  fileIds?: string[],
+  sessionIds?: string[]
+): Promise<Hit[]> {
   const ns = await ensureIndex();
   const query: {
     topK: number;
     inputs: { text: string };
     filter?: Record<string, unknown>;
   } = { topK, inputs: { text: queryText } };
-  // Scope the search to a subset of files when the user selects sources.
-  if (fileIds && fileIds.length) {
-    query.filter = { file_id: { $in: fileIds } };
-  }
+  // Scope to the caller's own workspace + the shared demo corpus (security
+  // boundary), and to the subset of files they selected (top-level keys AND).
+  const filter: Record<string, unknown> = {};
+  if (sessionIds && sessionIds.length) filter.session_id = { $in: sessionIds };
+  if (fileIds && fileIds.length) filter.file_id = { $in: fileIds };
+  if (Object.keys(filter).length) query.filter = filter;
   const res = await ns.searchRecords({ query });
 
   const hits = res.result?.hits ?? [];

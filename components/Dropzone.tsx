@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { upload } from "@vercel/blob/client";
+import { getSessionId, sessionHeaders } from "@/lib/session";
 import type { LibraryFile } from "@/lib/types";
 
 type LocalStatus = "uploading" | "queued" | "error";
@@ -43,17 +44,21 @@ export default function Dropzone({
     setBusy(true);
     setItems((prev) => [...prev, ...list.map((f) => ({ name: f.name, local: "uploading" as LocalStatus }))]);
 
+    const sid = getSessionId();
+
     for (const file of list) {
       try {
         patch(file.name, { local: "uploading" });
-        const blob = await upload(file.name, file, {
+        // Prefix the blob path with the session so uploads are grouped per
+        // visitor (and cleanly purged together by the cleanup cron).
+        const blob = await upload(`${sid}/${file.name}`, file, {
           access: "public",
           handleUploadUrl: "/api/upload",
         });
 
         const res = await fetch("/api/ingest", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...sessionHeaders() },
           body: JSON.stringify({ url: blob.url, filename: file.name, audioType: "conversational" }),
         });
         const data = await res.json();

@@ -73,7 +73,11 @@ export default function Vault({
                         {f.status === "failed" && (f.error || "failed")}
                       </div>
                     </div>
-                    <HoldToDelete onConfirm={() => onDelete(f.file_id)} />
+                    {f.readOnly ? (
+                      <span className="tag">demo</span>
+                    ) : (
+                      <HoldToDelete onConfirm={() => onDelete(f.file_id)} />
+                    )}
                   </motion.div>
                 ))}
               </AnimatePresence>
