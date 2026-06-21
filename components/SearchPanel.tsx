@@ -141,9 +141,9 @@ function AudioResultCard({
       ref={(el) => registerRef(index, el)}
       className={`rcard${focused ? " focused" : ""}`}
       onMouseDown={() => onFocus(index)}
-      initial={{ opacity: 0, y: 14 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", stiffness: 320, damping: 26, delay: index * 0.04 }}
+      initial={{ opacity: 0, y: 14, filter: "blur(4px)" }}
+      animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+      transition={{ type: "spring", stiffness: 320, damping: 30, delay: index * 0.05 }}
     >
       <span className="rcard-accent" style={{ background: data.color }} />
 
@@ -453,7 +453,7 @@ export default function SearchPanel({
           onClick={() => run()}
           disabled={busy || !query.trim()}
           whileHover={{ scale: 1.05, rotate: -1 }}
-          whileTap={{ scale: 0.94 }}
+          whileTap={{ scale: 0.96 }}
         >
           {busy ? "…" : "GO"}
         </motion.button>
@@ -470,11 +470,11 @@ export default function SearchPanel({
                 run(q);
               }}
               disabled={busy}
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              transition={{ type: "spring", stiffness: 320, damping: 18, delay: i * 0.04 }}
+              initial={{ opacity: 0, scale: 0.8, filter: "blur(4px)" }}
+              animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+              transition={{ type: "spring", stiffness: 320, damping: 22, delay: i * 0.04 }}
               whileHover={{ scale: 1.06, rotate: -1.5 }}
-              whileTap={{ scale: 0.95 }}
+              whileTap={{ scale: 0.96 }}
             >
               {q}
             </motion.button>
@@ -490,14 +490,14 @@ export default function SearchPanel({
       )}
       {error && <div className="err">{error}</div>}
 
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {answer && (
           <motion.div
             className="answer"
-            initial={{ opacity: 0, scale: 0.9, y: 12 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 18 }}
+            initial={{ opacity: 0, y: 12, filter: "blur(4px)" }}
+            animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+            exit={{ opacity: 0, y: -12, filter: "blur(4px)", transition: { duration: 0.15, ease: "easeIn" } }}
+            transition={{ type: "spring", stiffness: 300, damping: 26 }}
           >
             <div className="answer-label">Answer</div>
             <p>{answer}</p>

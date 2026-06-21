@@ -31,6 +31,9 @@ body {
   color: var(--ink);
   font-family: var(--font-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
   min-height: 100vh;
+  /* Crisper, lighter text on macOS (ignored elsewhere). */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* The reactive blob sits fixed behind everything and never eats clicks. */
@@ -58,6 +61,7 @@ body {
   line-height: 1;
   margin: 0 0 10px;
   color: var(--ink);
+  text-wrap: balance;
 }
 
 .title .spark {
@@ -76,6 +80,7 @@ body {
   font-size: 14px;
   max-width: 640px;
   line-height: 1.5;
+  text-wrap: pretty;
 }
 
 /* ---- Top bar (title + vault access) ---- */
@@ -276,6 +281,7 @@ strong {
   font-size: 20px;
   font-weight: 700;
   color: var(--ink);
+  text-wrap: balance;
 }
 
 /* ---- Rows & inputs ---- */
@@ -678,6 +684,7 @@ button.link:disabled {
   font-size: 15px;
   line-height: 1.6;
   color: var(--ink);
+  text-wrap: pretty;
   /* Keep long answers from blowing out the layout; scroll inside instead. */
   max-height: 320px;
   overflow-y: auto;
@@ -775,6 +782,7 @@ button.link:disabled {
   font-family: var(--font-mono), monospace;
   font-size: 11px;
   font-weight: 700;
+  font-variant-numeric: tabular-nums;
   color: var(--ink);
   background: var(--cyan);
   border: 2px solid var(--ink);
@@ -788,6 +796,7 @@ button.link:disabled {
   font-size: 14.5px;
   line-height: 1.6;
   color: #000;
+  text-wrap: pretty;
 }
 
 /* Karaoke: words light up in reading order as the sentence plays — the text
@@ -812,15 +821,20 @@ button.link:disabled {
   padding: 0 4px;
 }
 
+/* Bars are full-height and scaled on the Y axis so the animation runs on the
+   GPU-composited `transform` (not `height`), avoiding per-frame layout. */
 .wf-bar {
   width: 3px;
-  height: 5px;
+  height: 20px;
   background: var(--ink);
   border-radius: 2px;
+  transform: scaleY(0.25);
+  transform-origin: bottom;
 }
 
 .waveform.playing .wf-bar {
   animation: wf-bounce 0.7s ease-in-out infinite;
+  will-change: transform;
 }
 
 .waveform.playing .wf-bar:nth-child(1) {
@@ -846,10 +860,10 @@ button.link:disabled {
 @keyframes wf-bounce {
   0%,
   100% {
-    height: 5px;
+    transform: scaleY(0.25);
   }
   50% {
-    height: 20px;
+    transform: scaleY(1);
   }
 }
 
@@ -1029,11 +1043,15 @@ button.rcard-btn.dl {
 }
 
 .vault-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: var(--border);
   background: var(--surface);
   border-radius: 10px;
-  width: 34px;
-  height: 34px;
+  /* Minimum 40×40 hit area (was 34×34). */
+  width: 40px;
+  height: 40px;
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;

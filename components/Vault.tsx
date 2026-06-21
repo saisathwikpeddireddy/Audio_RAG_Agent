@@ -59,7 +59,7 @@ export default function Vault({
                     layout
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, scale: 0.7, x: 30 }}
+                    exit={{ opacity: 0, x: 24, transition: { duration: 0.15, ease: "easeIn" } }}
                     transition={{ type: "spring", stiffness: 320, damping: 26 }}
                   >
                     <div className="vault-info">

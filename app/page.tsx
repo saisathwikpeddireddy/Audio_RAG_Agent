@@ -132,7 +132,7 @@ export default function Home() {
             className="vault-btn"
             onClick={() => setVaultOpen(true)}
             whileHover={{ scale: 1.06, rotate: -2 }}
-            whileTap={{ scale: 0.94 }}
+            whileTap={{ scale: 0.96 }}
             title="See all the files you've added"
           >
             📁 Active Sources{hasFiles ? ` (${library.length})` : ""}

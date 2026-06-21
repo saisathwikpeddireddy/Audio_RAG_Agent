@@ -39,10 +39,10 @@ export default function CapsuleStack({
               onClick={() => ready && onToggle(f.file_id)}
               disabled={!ready}
               layout
-              initial={{ opacity: 0, scale: 0.7, y: -8 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.6, x: 24 }}
-              transition={{ type: "spring", stiffness: 320, damping: 22 }}
+              initial={{ opacity: 0, scale: 0.8, y: -8, filter: "blur(4px)" }}
+              animate={{ opacity: 1, scale: 1, y: 0, filter: "blur(0px)" }}
+              exit={{ opacity: 0, y: -8, transition: { duration: 0.15, ease: "easeIn" } }}
+              transition={{ type: "spring", stiffness: 320, damping: 26 }}
               whileHover={ready ? { scale: 1.02 } : undefined}
               whileTap={ready ? { scale: 0.96 } : undefined}
               title={f.filename}
