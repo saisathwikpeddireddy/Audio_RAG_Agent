@@ -31,6 +31,13 @@ export async function transcribeUrlWords(audioUrl: string): Promise<Word[]> {
 
   if (!res.ok) {
     const detail = await res.text();
+    // Groq caps transcription input at 25 MB — surface that as friendly copy
+    // instead of leaking raw JSON into the UI.
+    if (res.status === 400 && /too large|size limit/i.test(detail)) {
+      throw new Error(
+        "This audio is over Groq's 25 MB transcription limit. Trim it or re-export at a lower bitrate / mono, then try again."
+      );
+    }
     throw new Error(`Groq transcription failed (${res.status}): ${detail.slice(0, 500)}`);
   }
 

@@ -8,6 +8,11 @@ import type { LibraryFile } from "@/lib/types";
 
 type LocalStatus = "uploading" | "queued" | "error";
 
+// Groq's Whisper transcription rejects anything over 25 MiB, so reject too-large
+// files up front instead of uploading them and failing server-side.
+const MAX_TRANSCRIBE_BYTES = 26_214_400; // 25 MiB
+const MB = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+
 interface Item {
   name: string;
   fileId?: string;
@@ -48,6 +53,14 @@ export default function Dropzone({
 
     for (const file of list) {
       try {
+        // Pre-flight: reject over-limit files before wasting an upload.
+        if (file.size > MAX_TRANSCRIBE_BYTES) {
+          patch(file.name, {
+            local: "error",
+            detail: `${MB(file.size)} MB — over the 25 MB transcription limit. Trim or re-export at a lower bitrate / mono.`,
+          });
+          continue;
+        }
         patch(file.name, { local: "uploading" });
         // Prefix the blob path with the session so uploads are grouped per
         // visitor (and cleanly purged together by the cleanup cron).
