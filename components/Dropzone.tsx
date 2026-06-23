@@ -116,7 +116,7 @@ export default function Dropzone({
         {busy ? (
           <span>
             <span className="spin" />
-            Adding to your memory bank…
+            Adding your audio…
           </span>
         ) : (
           <>
@@ -125,7 +125,7 @@ export default function Dropzone({
             </div>
             {!compact && (
               <div className="muted" style={{ marginTop: 6 }}>
-                …to add them to your memory bank. Click to browse, or just drag &amp; drop.
+                MP3, WAV, or M4A — up to 25 MB each. Click to browse, or drag &amp; drop.
               </div>
             )}
           </>

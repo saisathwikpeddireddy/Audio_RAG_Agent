@@ -27,7 +27,11 @@ export async function POST(request: Request) {
     const sessionIds = sid ? [sid, DEMO_SESSION] : [DEMO_SESSION];
     const hits = await search(query, topK ?? config.topK, fileIds, sessionIds);
     if (!hits.length) {
-      return NextResponse.json({ hits: [], clips: [], note: "No matches. Upload & ingest audio first." });
+      return NextResponse.json({
+        hits: [],
+        clips: [],
+        note: "No matches yet — try a different question, or add more audio.",
+      });
     }
 
     const { answer, clips } = await generateReel(query, hits);

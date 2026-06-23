@@ -395,11 +395,11 @@ export default function SearchPanel({
     const q = (override ?? query).trim();
     if (!q || busy) return;
     if (readyCount === 0) {
-      setError("Add some audio above first, then search.");
+      setError("Add some audio first, then search.");
       return;
     }
     if (selected.length === 0) {
-      setError("Select at least one source above to search.");
+      setError("Pick at least one source to search.");
       return;
     }
 
@@ -428,7 +428,7 @@ export default function SearchPanel({
       if (data.note) throw new Error(data.note);
 
       if (!data.hits?.length && !data.answer) {
-        throw new Error("Couldn't find a clear moment for that — try rephrasing?");
+        throw new Error("No clear match for that — try rephrasing your question.");
       }
     } catch (e) {
       setError((e as Error).message);
@@ -443,7 +443,7 @@ export default function SearchPanel({
       <div className="row">
         <input
           type="text"
-          placeholder="Query the transcript (e.g., “What was the pricing decision?”)"
+          placeholder="Ask about your audio (e.g., “What was the pricing decision?”)"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && run()}

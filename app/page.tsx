@@ -133,7 +133,7 @@ export default function Home() {
             onClick={() => setVaultOpen(true)}
             whileHover={{ scale: 1.06, rotate: -2 }}
             whileTap={{ scale: 0.96 }}
-            title="See all the files you've added"
+            title="Manage your sources"
           >
             📁 Active Sources{hasFiles ? ` (${library.length})` : ""}
           </motion.button>
@@ -162,7 +162,7 @@ export default function Home() {
         )}
 
         <p className="muted" style={{ marginTop: 24 }}>
-          Local Processing: Audio buffers are sliced securely within your browser.
+          Clips are sliced in your browser for playback and download — nothing is re-uploaded.
         </p>
       </main>
 

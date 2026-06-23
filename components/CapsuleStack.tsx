@@ -52,7 +52,7 @@ export default function CapsuleStack({
                 <span className="capsule-num">[{i + 1}]</span> {formatSourceName(f.title || f.filename)}
               </span>
               {f.readOnly && <span className="capsule-state">demo</span>}
-              {f.status === "processing" && <span className="capsule-state">Listening &amp; Indexing…</span>}
+              {f.status === "processing" && <span className="capsule-state">Transcribing…</span>}
               {f.status === "failed" && (
                 <span
                   className="capsule-retry"

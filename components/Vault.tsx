@@ -44,8 +44,8 @@ export default function Vault({
               </button>
             </div>
             <p className="muted" style={{ marginBottom: 14 }}>
-              Everything in your memory bank. Hold <b>Delete</b> to wipe a file from search, storage
-              &amp; transcripts for good.
+              Your uploaded sources. Hold <b>Delete</b> to remove a file from search and storage — for
+              good.
             </p>
 
             {library.length === 0 ? (
@@ -69,7 +69,7 @@ export default function Vault({
                       <div className="muted vault-meta">
                         {f.status === "ready" &&
                           `${f.children} ${f.children === 1 ? "segment" : "segments"} · ${f.audio_type}`}
-                        {f.status === "processing" && "Listening & Indexing…"}
+                        {f.status === "processing" && "Transcribing…"}
                         {f.status === "failed" && (f.error || "failed")}
                       </div>
                     </div>
