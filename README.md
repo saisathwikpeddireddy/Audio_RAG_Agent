@@ -1,7 +1,7 @@
 # 🎧 Audio RAG Workspace
 
 Upload raw audio, search it by intent, and get back **a grounded written answer
-plus a ranked feed of playable audio quotes** — each one a self-contained moment
+plus a ranked feed of playable audio quotes** - each one a self-contained moment
 you can play, read along to (karaoke-style), and download.
 
 **▶️ Live demo: https://audio-rag-agent-h2xx.vercel.app**
@@ -13,7 +13,7 @@ you can play, read along to (karaoke-style), and download.
 ![Pinecone](https://img.shields.io/badge/Pinecone-Vector%20DB-2bb3a3)
 ![Gemini](https://img.shields.io/badge/Google-Gemini-4285f4?logo=google)
 
-> Runs entirely on free tiers. No GPU, no local models, no local vector DB — all
+> Runs entirely on free tiers. No GPU, no local models, no local vector DB - all
 > heavy compute and storage live in managed services, and audio is sliced in the
 > browser so nothing is ever re-uploaded.
 
@@ -21,26 +21,26 @@ you can play, read along to (karaoke-style), and download.
 
 ## What it does
 
-- **Upload & index** audio — transcribed by Groq Whisper with **word-level
+- **Upload & index** audio - transcribed by Groq Whisper with **word-level
   timestamps**, split into overlapping sentence chunks, and embedded into
   Pinecone (hosted embeddings, no OpenAI cost).
-- **Search by intent** — semantic search retrieves the most relevant moments,
+- **Search by intent** - semantic search retrieves the most relevant moments,
   and an LLM writes a concise **answer grounded only in the retrieved chunks**.
-- **Atomic result cards** — every retrieved chunk becomes its own card (strict
+- **Atomic result cards** - every retrieved chunk becomes its own card (strict
   1:1), showing its timestamp range, a match score, and the exact transcript.
-- **Tactile playback** — each card plays *only its own* segment of the source
+- **Tactile playback** - each card plays *only its own* segment of the source
   audio, with a **karaoke highlight** sweeping the words in sync and an animated
   **waveform** that dances only while that card is playing.
-- **Pick your sources** — indexed files appear as toggle pills so you can scope a
+- **Pick your sources** - indexed files appear as toggle pills so you can scope a
   query to a subset (faster + cheaper); a **Vault** drawer manages/deletes files.
-- **Per-visitor workspaces** — each visitor gets an isolated, sandboxed session
+- **Per-visitor workspaces** - each visitor gets an isolated, sandboxed session
   (uploads + search are scoped to them), plus a shared read-only **demo corpus**
-  so the app is searchable the moment you land — no upload required.
-- **Grounded suggestions** — each file gets one-click example questions generated
+  so the app is searchable the moment you land - no upload required.
+- **Grounded suggestions** - each file gets one-click example questions generated
   from its own transcript.
-- **Keyboard-first** — `J`/`K` (or ↑/↓) to move between cards, `Space` to
+- **Keyboard-first** - `J`/`K` (or ↑/↓) to move between cards, `Space` to
   play/pause, `D` to download the focused card.
-- **Browser-side audio** — playback and per-card WAV downloads are sliced with
+- **Browser-side audio** - playback and per-card WAV downloads are sliced with
   the Web Audio API client-side; the source audio is never re-uploaded.
 
 ## Architecture
@@ -72,36 +72,36 @@ you can play, read along to (karaoke-style), and download.
 
 **Sliding-window sentence chunking with anchor look-backs** (`lib/chunking.ts`):
 
-1. **Sentence tokenization** — Whisper's word stream is grouped into
+1. **Sentence tokenization** - Whisper's word stream is grouped into
    grammatically-complete sentences, finalized *only* on terminal punctuation
-   (`.`, `?`, `!`) — never on commas or pauses. Each sentence keeps word-precise
+   (`.`, `?`, `!`) - never on commas or pauses. Each sentence keeps word-precise
    `start`/`end` boundaries.
-2. **Overlapping windows** — sentences are assembled into ~25s chunks; the next
+2. **Overlapping windows** - sentences are assembled into ~25s chunks; the next
    chunk re-seeds with the **last sentence of the previous chunk**, so context
    overlaps across boundaries.
-3. **Anchor check** — if a chunk would start on a conjunction or continuation
+3. **Anchor check** - if a chunk would start on a conjunction or continuation
    pronoun (*And, But, So, It, They, This…*), it steps back to prepend earlier
-   sentences until it begins on a strong anchor word — so every chunk reads as a
+   sentences until it begins on a strong anchor word - so every chunk reads as a
    self-contained narrative with a proper start.
 
 The DB schema is **flat**: one vector per chunk, with `start_time_ms` /
 `end_time_ms` as that chunk's absolute boundaries. The frontend maps `hits`
-strictly 1:1 to cards — no client-side grouping or de-duplication.
+strictly 1:1 to cards - no client-side grouping or de-duplication.
 
 ### Sessions & isolation
 
 The public demo is multi-tenant without auth or a database:
 
-- **Per-visitor session** — a `sid` cookie (24h) scopes everything. Every vector
+- **Per-visitor session** - a `sid` cookie (24h) scopes everything. Every vector
   carries a `session_id`; Blob uploads and the JSON manifest live under
   `library/{sid}/`. Search is filtered to `session_id ∈ { yours, "demo" }`, so
   visitors never see or delete each other's files.
-- **Shared demo corpus** — the special `demo` session is pre-seeded and merged
+- **Shared demo corpus** - the special `demo` session is pre-seeded and merged
   read-only into everyone's view, so a first-time visitor can search instantly.
   Seed it once after deploy (`SEED_SECRET` + `POST /api/seed-demo`).
-- **Auto-expiry** — a daily Vercel Cron (`/api/cleanup`, guarded by
-  `CRON_SECRET`) purges sessions whose newest file is >24h old — deleting their
-  vectors, audio blobs, and manifest — so storage never creeps past the free
+- **Auto-expiry** - a daily Vercel Cron (`/api/cleanup`, guarded by
+  `CRON_SECRET`) purges sessions whose newest file is >24h old - deleting their
+  vectors, audio blobs, and manifest - so storage never creeps past the free
   tier. The `demo` session is never touched.
 
 ---
@@ -122,7 +122,7 @@ npm run dev                  # http://localhost:3000
 `SEED_SECRET`, …) are listed in `.env.example`.
 
 **Deploy:** import the repo on Vercel and connect a **Blob** store under the
-project's Storage tab — `BLOB_READ_WRITE_TOKEN` is injected automatically. The
+project's Storage tab - `BLOB_READ_WRITE_TOKEN` is injected automatically. The
 cleanup cron in `vercel.json` runs automatically on Vercel.
 
 **Seed the demo corpus (once):** upload a public-domain clip to your Blob store,
@@ -137,21 +137,21 @@ curl -X POST https://<your-app>/api/seed-demo \
 
 ### Project layout
 
-- `app/page.tsx` — shared library state, status polling, empty-state logic.
-- `app/layout.tsx` · `app/globals.css` — shell + neubrutalist styling.
+- `app/page.tsx` - shared library state, status polling, empty-state logic.
+- `app/layout.tsx` · `app/globals.css` - shell + neubrutalist styling.
 - `app/api/`
-  - `upload/route.ts` — Vercel Blob client-upload handshake.
-  - `ingest/route.ts` — session-scoped kickoff (background `waitUntil`, 202).
-  - `search/route.ts` — Pinecone query (scoped to session + demo) → answer LLM.
-  - `files/route.ts` · `files/[id]/route.ts` — list (merged view) / delete (ownership-checked).
-  - `seed-demo/route.ts` — one-time seeder for the shared demo corpus.
-  - `cleanup/route.ts` — daily cron that purges expired sessions.
+  - `upload/route.ts` - Vercel Blob client-upload handshake.
+  - `ingest/route.ts` - session-scoped kickoff (background `waitUntil`, 202).
+  - `search/route.ts` - Pinecone query (scoped to session + demo) → answer LLM.
+  - `files/route.ts` · `files/[id]/route.ts` - list (merged view) / delete (ownership-checked).
+  - `seed-demo/route.ts` - one-time seeder for the shared demo corpus.
+  - `cleanup/route.ts` - daily cron that purges expired sessions.
 - `components/`
-  - `Dropzone.tsx` — drag-and-drop upload pipeline.
-  - `CapsuleStack.tsx` — source toggle pills.
-  - `SearchPanel.tsx` — search box, suggestion chips, result cards, karaoke + waveform.
-  - `Vault.tsx` · `HoldToDelete.tsx` — file management drawer + safe delete.
-- `lib/` — `chunking`, `groq`, `pinecone`, `editor`, `suggest`, `library`,
+  - `Dropzone.tsx` - drag-and-drop upload pipeline.
+  - `CapsuleStack.tsx` - source toggle pills.
+  - `SearchPanel.tsx` - search box, suggestion chips, result cards, karaoke + waveform.
+  - `Vault.tsx` · `HoldToDelete.tsx` - file management drawer + safe delete.
+- `lib/` - `chunking`, `groq`, `pinecone`, `editor`, `suggest`, `library`,
   `ingestPipeline`, `stitch`, `format`, `errors`, `session` (client) +
   `sessionServer`, `config`, `types`.
-- `types/pinecone.ts` — the single source of truth for the vector metadata schema.
+- `types/pinecone.ts` - the single source of truth for the vector metadata schema.

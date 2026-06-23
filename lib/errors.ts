@@ -1,7 +1,7 @@
 // Standardized API error classification. External providers (Groq, Gemini,
 // Pinecone) surface their HTTP status inside the thrown Error's message
 // (e.g. "Groq chat failed (429): ..."), so we sniff that to return a friendly,
-// machine-readable payload the brutalist UI can theme — instead of leaking a raw
+// machine-readable payload the brutalist UI can theme - instead of leaking a raw
 // stack/500 or failing silently.
 
 export interface ApiError {
@@ -24,7 +24,7 @@ export function classifyError(error: unknown): ApiError {
     return {
       status: 429,
       code: "LLM_RATE_LIMIT",
-      message: "Take a breath! The AI is cooling down — give it a few seconds and try again.",
+      message: "Take a breath! The AI is cooling down. Give it a few seconds and try again.",
     };
   }
 

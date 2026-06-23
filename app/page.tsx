@@ -83,7 +83,7 @@ export default function Home() {
       if (res.ok && Array.isArray(data.library)) {
         setLibrary(data.library);
       } else {
-        // Deletion failed — re-sync so the file reappears rather than lying.
+        // Deletion failed - re-sync so the file reappears rather than lying.
         refresh();
       }
     } catch {
@@ -162,7 +162,7 @@ export default function Home() {
         )}
 
         <p className="muted" style={{ marginTop: 24 }}>
-          Clips are sliced in your browser for playback and download — nothing is re-uploaded.
+          Clips are sliced in your browser for playback and download. Nothing is re-uploaded.
         </p>
       </main>
 

@@ -1,6 +1,6 @@
 // DELETE a single indexed file end-to-end: purge its vectors from Pinecone,
 // remove the underlying audio from Blob storage, and drop it from the caller's
-// manifest. Only the owning session may delete a file — the shared demo corpus
+// manifest. Only the owning session may delete a file - the shared demo corpus
 // is read-only.
 
 import { NextResponse } from "next/server";
@@ -33,10 +33,10 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       );
     }
 
-    // Step A — vector purge (before dropping the record, so a failure is retryable).
+    // Step A - vector purge (before dropping the record, so a failure is retryable).
     const deletedVectors = await deleteFileVectors(fileId);
 
-    // Step B — storage purge (best-effort; a missing blob shouldn't block).
+    // Step B - storage purge (best-effort; a missing blob shouldn't block).
     if (entry.blob_url) {
       try {
         await del(entry.blob_url);
@@ -45,7 +45,7 @@ export async function DELETE(request: Request, { params }: { params: { id: strin
       }
     }
 
-    // Step C — manifest cleanup (scoped to this session) + return the merged view.
+    // Step C - manifest cleanup (scoped to this session) + return the merged view.
     await removeLibraryEntry(sid, fileId);
     const library = await getLibrary(sid);
 

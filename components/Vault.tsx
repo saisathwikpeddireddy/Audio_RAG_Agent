@@ -44,12 +44,12 @@ export default function Vault({
               </button>
             </div>
             <p className="muted" style={{ marginBottom: 14 }}>
-              Your uploaded sources. Hold <b>Delete</b> to remove a file from search and storage — for
+              Your uploaded sources. Hold <b>Delete</b> to remove a file from search and storage, for
               good.
             </p>
 
             {library.length === 0 ? (
-              <div className="muted">Nothing here yet — add some audio to get started.</div>
+              <div className="muted">Nothing here yet. Add some audio to get started.</div>
             ) : (
               <AnimatePresence initial={false}>
                 {library.map((f) => (

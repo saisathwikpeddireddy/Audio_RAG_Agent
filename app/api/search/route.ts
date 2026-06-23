@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       return NextResponse.json({
         hits: [],
         clips: [],
-        note: "No matches yet — try a different question, or add more audio.",
+        note: "No matches yet. Try a different question, or add more audio.",
       });
     }
 

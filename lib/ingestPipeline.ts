@@ -53,13 +53,13 @@ async function runIngestion(sid: string, base: LibraryFile) {
     const { children, suggestions } = await withTimeout(
       indexFile(sid, base.blob_url, base.file_id, base.audio_type, base.title ?? base.filename),
       SOFT_TIMEOUT_MS,
-      "Indexing took too long — try a shorter clip, or split the file."
+      "Indexing took too long. Try a shorter clip, or split the file."
     );
     await saveLibraryEntry(sid, { ...base, status: "ready", children, suggestions, error: undefined });
     console.log(`[ingest:${sid}] ready: ${base.filename} (${children} chunks)`);
   } catch (error) {
     const message = (error as Error).message || "Ingestion failed";
-    console.error(`[ingest:${sid}] failed: ${base.filename} — ${message}`);
+    console.error(`[ingest:${sid}] failed: ${base.filename} - ${message}`);
     try {
       await saveLibraryEntry(sid, { ...base, status: "failed", error: message });
     } catch (e) {
@@ -90,7 +90,7 @@ export async function kickoffIngestion(
   try {
     await saveLibraryEntry(sid, entry); // visible immediately to pollers
   } catch {
-    // Manifest write failed — still index; status just won't persist up front.
+    // Manifest write failed - still index; status just won't persist up front.
   }
 
   waitUntil(runIngestion(sid, entry));

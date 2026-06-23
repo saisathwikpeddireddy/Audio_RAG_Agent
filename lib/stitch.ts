@@ -1,6 +1,6 @@
 // Phase 3 (browser): fetch the referenced audio, slice each clip by millisecond,
 // and render to a single playable buffer. Clips are placed back-to-back with a
-// hard gap of absolute silence between them (no crossfade) — speech transients
+// hard gap of absolute silence between them (no crossfade) - speech transients
 // (leading/trailing consonants) survive intact, and the gap gives the listener
 // a "breath" to register each context switch. Client-side via Web Audio.
 
@@ -8,7 +8,7 @@ import type { Clip } from "./types";
 
 const audioBufferCache = new Map<string, AudioBuffer>();
 
-// Decoding audio does NOT require the live audio device — so we decode on a
+// Decoding audio does NOT require the live audio device - so we decode on a
 // throwaway OfflineAudioContext rather than a live AudioContext. A live context
 // here was the source of the intermittent "AudioContext encountered an error
 // from the audio device or the WebAudio renderer" failures, which left the
@@ -52,7 +52,7 @@ function scheduleTick(ctx: OfflineAudioContext, atSec: number): AudioNode[] {
   const start = atSec + 0.2; // let the clip breathe for 200ms before the pad
   const stop = atSec + 0.9; // fully decayed before the next clip at atSec + 1.0
 
-  // Lowpass filter sweeping down — gives the chord a soft "bloom then settle".
+  // Lowpass filter sweeping down - gives the chord a soft "bloom then settle".
   const filter = ctx.createBiquadFilter();
   filter.type = "lowpass";
   filter.frequency.setValueAtTime(800, start);
@@ -124,13 +124,12 @@ export async function stitchClips(clips: Clip[], gapMs = 1000): Promise<StitchRe
   slices.forEach((slice, i) => {
     const node = offline.createBufferSource();
     node.buffer = slice.source;
-    // No gain ramps — play each slice at full volume so consonants stay crisp.
+    // No gain ramps - play each slice at full volume so consonants stay crisp.
     node.connect(offline.destination);
     node.start(cursor, slice.offsetSec, slice.durationSec);
     nodes.push(node);
     const clipEnd = cursor + slice.durationSec;
-    // Bloom a soft Rhodes pad inside the gap after this clip (except the last —
-    // nothing follows it) as an auditory chapter marker.
+    // Bloom a soft Rhodes pad inside the gap after this clip (except the last -     // nothing follows it) as an auditory chapter marker.
     if (gapSec > 0 && i < slices.length - 1) {
       nodes.push(...scheduleTick(offline, clipEnd));
     }

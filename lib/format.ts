@@ -1,5 +1,4 @@
-// Turn a raw indexed source string — a blob URL, a path, or a stored filename —
-// into a clean, human-readable Title Case name for display. Strips the directory,
+// Turn a raw indexed source string - a blob URL, a path, or a stored filename - // into a clean, human-readable Title Case name for display. Strips the directory,
 // percent-encoding, file extension, ingestion descriptors ("- audio overview -
 // <DATE> UTC-<HASH>"), and trailing version tags (v3, v3-2), then normalizes
 // separators and applies Title Case. e.g. "the-attention-equation-v3-2.mp3" →

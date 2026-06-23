@@ -1,6 +1,6 @@
 // Per-session "library" of indexed files, persisted as one JSON manifest per
 // session in Vercel Blob (`library/{sessionId}/manifest.json`). There's no
-// database — this is enough to remember a visitor's files across reloads and to
+// database - this is enough to remember a visitor's files across reloads and to
 // scope queries. The shared, read-only "demo" session is merged into every
 // visitor's view so the app is never empty on first visit.
 

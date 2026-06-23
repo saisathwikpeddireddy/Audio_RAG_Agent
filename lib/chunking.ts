@@ -14,7 +14,7 @@ import type { ChildRecord } from "./types";
 
 const TARGET_CHUNK_MS = 25_000;
 
-// Words that signal a continuing thought — a chunk should not START on one, or
+// Words that signal a continuing thought - a chunk should not START on one, or
 // it reads as a fragment ripped from mid-narrative.
 const WEAK_STARTERS = new Set([
   // coordinating conjunctions + connectives
@@ -49,13 +49,13 @@ function joinWords(tokens: string[]): string {
     .trim();
 }
 
-// First alphabetic word of a sentence, lowercased — for the anchor check.
+// First alphabetic word of a sentence, lowercased - for the anchor check.
 function firstWord(text: string): string {
   const m = text.trim().match(/^[A-Za-z']+/);
   return m ? m[0].toLowerCase() : "";
 }
 
-// STEP 1 — Sentence tokenization. Accumulate words and close a sentence ONLY on
+// STEP 1 - Sentence tokenization. Accumulate words and close a sentence ONLY on
 // terminal punctuation (. ? !). Commas/pauses/conjunctions are ignored.
 export function buildSentences(words: Word[]): Sentence[] {
   const sentences: Sentence[] = [];
@@ -85,7 +85,7 @@ export function buildSentences(words: Word[]): Sentence[] {
   return sentences;
 }
 
-// STEPS 2 & 3 — assemble overlapping chunks with anchor look-backs.
+// STEPS 2 & 3 - assemble overlapping chunks with anchor look-backs.
 export function assembleChunks(sentences: Sentence[]): Chunk[] {
   const chunks: Chunk[] = [];
   if (!sentences.length) return chunks;
@@ -95,7 +95,7 @@ export function assembleChunks(sentences: Sentence[]): Chunk[] {
     let startIdx = seed;
     let endIdx = seed;
 
-    // STEP 2 — grow until the chunk reaches the target duration (or we run out).
+    // STEP 2 - grow until the chunk reaches the target duration (or we run out).
     while (
       endIdx + 1 < sentences.length &&
       sentences[endIdx].endMs - sentences[startIdx].startMs < TARGET_CHUNK_MS
@@ -103,7 +103,7 @@ export function assembleChunks(sentences: Sentence[]): Chunk[] {
       endIdx++;
     }
 
-    // STEP 3 — anchor check: back up while the chunk starts on a weak word, so it
+    // STEP 3 - anchor check: back up while the chunk starts on a weak word, so it
     // begins on a strong noun/anchor and reads as a self-contained narrative.
     while (startIdx > 0 && WEAK_STARTERS.has(firstWord(sentences[startIdx].text))) {
       startIdx--;
@@ -126,7 +126,7 @@ export function assembleChunks(sentences: Sentence[]): Chunk[] {
   return chunks;
 }
 
-// STEP 4 — flat upsert records, one per assembled chunk. IDs keep the
+// STEP 4 - flat upsert records, one per assembled chunk. IDs keep the
 // `${fileId}-` prefix so delete-by-prefix still works.
 export function buildChildRecords(
   chunks: Chunk[],

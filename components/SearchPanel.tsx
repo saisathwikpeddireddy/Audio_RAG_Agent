@@ -7,7 +7,7 @@ import { sessionHeaders } from "@/lib/session";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 
 // Must match the capsule accents in CapsuleStack, keyed by the file's position
-// in the library — so a card's accent stripe is a legend back to its source.
+// in the library - so a card's accent stripe is a legend back to its source.
 const ACCENTS = ["#ec4899", "#06b6d4", "#eab308"];
 const FALLBACK_COLOR = "#9ca3af";
 
@@ -149,7 +149,7 @@ function AudioResultCard({
 
       <div className="rcard-head">
         <span className="rcard-time">
-          {fmtTime(startSec)} – {fmtTime(endSec)}
+          {fmtTime(startSec)} - {fmtTime(endSec)}
         </span>
         <span className="rcard-score">{data.score}%</span>
       </div>
@@ -216,7 +216,7 @@ export default function SearchPanel({
     return (filePath: string) => byUrl.get(filePath) ?? FALLBACK_COLOR;
   }, [library]);
 
-  // STRICTLY 1:1 — one hit, one card. No grouping, dedup, or rollups.
+  // STRICTLY 1:1 - one hit, one card. No grouping, dedup, or rollups.
   const cards = useMemo<CardData[]>(
     () =>
       hits.map((h) => ({
@@ -428,7 +428,7 @@ export default function SearchPanel({
       if (data.note) throw new Error(data.note);
 
       if (!data.hits?.length && !data.answer) {
-        throw new Error("No clear match for that — try rephrasing your question.");
+        throw new Error("No clear match for that. Try rephrasing your question.");
       }
     } catch (e) {
       setError((e as Error).message);

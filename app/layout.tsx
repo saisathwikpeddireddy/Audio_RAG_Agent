@@ -16,7 +16,7 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Audio RAG Workspace",
-  description: "Upload audio, search it by intent, and extract the exact quotes — with synced playback and clip downloads.",
+  description: "Upload audio, search it by intent, and extract the exact quotes, with synced playback and clip downloads.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

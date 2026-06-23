@@ -156,7 +156,7 @@ body {
   background: #fff7d6;
 }
 
-/* Still indexing — animated candy-stripe, not selectable. */
+/* Still indexing - animated candy-stripe, not selectable. */
 .capsule.processing {
   cursor: default;
   background-image: repeating-linear-gradient(
@@ -755,7 +755,7 @@ button.link:disabled {
   margin-bottom: 10px;
 }
 
-/* Title flexes to fill the row and truncates — never collides with the badge. */
+/* Title flexes to fill the row and truncates - never collides with the badge. */
 .rcard-source {
   flex: 1 1 auto;
   min-width: 0;
@@ -799,7 +799,7 @@ button.link:disabled {
   text-wrap: pretty;
 }
 
-/* Karaoke: words light up in reading order as the sentence plays — the text
+/* Karaoke: words light up in reading order as the sentence plays - the text
    itself is the tactile visualizer. */
 .rcard-text.karaoke .kw {
   border-radius: 3px;

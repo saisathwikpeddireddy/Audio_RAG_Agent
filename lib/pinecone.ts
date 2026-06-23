@@ -1,4 +1,4 @@
-// Pinecone with integrated (hosted) embeddings — no OpenAI cost, free Starter tier.
+// Pinecone with integrated (hosted) embeddings - no OpenAI cost, free Starter tier.
 
 import { Pinecone } from "@pinecone-database/pinecone";
 import { config } from "./config";

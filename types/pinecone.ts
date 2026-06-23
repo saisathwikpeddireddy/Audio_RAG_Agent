@@ -7,11 +7,11 @@
 // field the hosted embedding model vectorizes (see fieldMap in lib/pinecone.ts).
 
 // Flat schema: one vector per grammatically-complete sentence. The chunk is the
-// single source of truth — no parent paragraph rollup. Both the writer
+// single source of truth - no parent paragraph rollup. Both the writer
 // (/api/ingest → upsert) and the reader (/api/search → query) reference these
 // types so the schema can never silently drift.
 export interface AudioChunkMetadata extends Record<string, string | number> {
-  file_path: string; // Vercel Blob URL — the browser fetches this to play audio
+  file_path: string; // Vercel Blob URL - the browser fetches this to play audio
   file_id: string; // stable per-upload id; used for $in filtering by source
   session_id: string; // owning workspace; "demo" = shared read-only corpus
   title: string; // human-readable source title, computed once at ingest

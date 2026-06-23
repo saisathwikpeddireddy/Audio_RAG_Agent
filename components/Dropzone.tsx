@@ -22,7 +22,7 @@ interface Item {
 
 // The drop target + upload pipeline. Once a file starts indexing it shows up in
 // the capsule stack below, so here we only surface files still in flight
-// (uploading) or that failed to start — never a duplicate of the capsules.
+// (uploading) or that failed to start - never a duplicate of the capsules.
 export default function Dropzone({
   compact,
   onIndexed,
@@ -57,7 +57,7 @@ export default function Dropzone({
         if (file.size > MAX_TRANSCRIBE_BYTES) {
           patch(file.name, {
             local: "error",
-            detail: `${MB(file.size)} MB — over the 25 MB transcription limit. Trim or re-export at a lower bitrate / mono.`,
+            detail: `${MB(file.size)} MB, over the 25 MB transcription limit. Trim it or re-export as mono at a lower bitrate.`,
           });
           continue;
         }
@@ -125,7 +125,7 @@ export default function Dropzone({
             </div>
             {!compact && (
               <div className="muted" style={{ marginTop: 6 }}>
-                MP3, WAV, or M4A — up to 25 MB each. Click to browse, or drag &amp; drop.
+                MP3, WAV, or M4A, up to 25 MB each. Click to browse, or drag &amp; drop.
               </div>
             )}
           </>
