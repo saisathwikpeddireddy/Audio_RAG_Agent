@@ -146,27 +146,25 @@ export default function Home() {
           No scrubbing through hours of audio.
         </p>
 
-        {/* First-time landing: a plain-language "how it works" so visitors get the
-            idea before they upload anything. Hidden once they have sources. */}
-        {!hasFiles && (
-          <div className="how">
-            <div className="how-step">
-              <span className="how-num">1</span>
-              <div className="how-h">Add a recording</div>
-              <div className="how-p">A podcast, lecture, interview, call, or meeting.</div>
-            </div>
-            <div className="how-step">
-              <span className="how-num">2</span>
-              <div className="how-h">Ask in plain English</div>
-              <div className="how-p">Like &ldquo;what did they decide about pricing?&rdquo;</div>
-            </div>
-            <div className="how-step">
-              <span className="how-num">3</span>
-              <div className="how-h">Get the moments</div>
-              <div className="how-p">Play or download the exact quotes, with transcripts.</div>
-            </div>
+        {/* A plain-language "how it works" so every visitor gets the idea, whether
+            or not they have sources yet. */}
+        <div className="how">
+          <div className="how-step">
+            <span className="how-num">1</span>
+            <div className="how-h">Add a recording</div>
+            <div className="how-p">A podcast, lecture, interview, call, or meeting.</div>
           </div>
-        )}
+          <div className="how-step">
+            <span className="how-num">2</span>
+            <div className="how-h">Ask in plain English</div>
+            <div className="how-p">Like &ldquo;what did they decide about pricing?&rdquo;</div>
+          </div>
+          <div className="how-step">
+            <span className="how-num">3</span>
+            <div className="how-h">Get the moments</div>
+            <div className="how-p">Play or download the exact quotes, with transcripts.</div>
+          </div>
+        </div>
 
         {/* Empty state (no sources): only the giant dropzone. With sources: the
             dropzone collapses to a small "+ Add more audio" pill, and the source
