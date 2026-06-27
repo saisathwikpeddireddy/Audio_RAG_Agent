@@ -118,6 +118,11 @@ without any third-party service or database:
 Each action writes one small JSON event to Blob under `analytics/events/`; the
 dashboard reads and aggregates them. See `lib/analytics.ts` and `lib/costs.ts`.
 
+This sits alongside **Vercel Web Analytics** (`<Analytics />` in the root layout),
+which handles the polished visitors / page views / bounce / device breakdown in
+the Vercel console. The two are complementary: Vercel for audience metrics, the
+custom dashboard for the per-action funnel and cost.
+
 ---
 
 ## Run it
