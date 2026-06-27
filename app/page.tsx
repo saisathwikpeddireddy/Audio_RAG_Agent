@@ -7,6 +7,7 @@ import CapsuleStack from "@/components/CapsuleStack";
 import SearchPanel from "@/components/SearchPanel";
 import Vault from "@/components/Vault";
 import { sessionHeaders } from "@/lib/session";
+import { track } from "@/lib/track";
 import type { LibraryFile } from "@/lib/types";
 
 export default function Home() {
@@ -31,6 +32,7 @@ export default function Home() {
 
   useEffect(() => {
     refresh();
+    track("visit");
   }, [refresh]);
 
   // Poll while any file is still processing, so status flips without a refresh.

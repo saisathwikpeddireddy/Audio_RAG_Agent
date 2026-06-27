@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { stitchClips, audioBufferToWav } from "@/lib/stitch";
 import { sessionHeaders } from "@/lib/session";
+import { track } from "@/lib/track";
 import type { Hit, Clip, LibraryFile } from "@/lib/types";
 
 // Must match the capsule accents in CapsuleStack, keyed by the file's position
@@ -293,6 +294,7 @@ export default function SearchPanel({
 
       activeRangeRef.current = { start: startSec, end: endSec };
       setPlayingIndex(index);
+      track("play");
 
       const begin = () => {
         try {
@@ -319,6 +321,7 @@ export default function SearchPanel({
   const downloadChunk = useCallback(async (index: number) => {
     const card = cardsRef.current[index];
     if (!card) return;
+    track("download");
     try {
       const clip: Clip = {
         file_path: card.filePath,

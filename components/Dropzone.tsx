@@ -72,7 +72,12 @@ export default function Dropzone({
         const res = await fetch("/api/ingest", {
           method: "POST",
           headers: { "Content-Type": "application/json", ...sessionHeaders() },
-          body: JSON.stringify({ url: blob.url, filename: file.name, audioType: "conversational" }),
+          body: JSON.stringify({
+            url: blob.url,
+            filename: file.name,
+            audioType: "conversational",
+            bytes: file.size,
+          }),
         });
         const data = await res.json();
         if (!res.ok && res.status !== 202) throw new Error(data.error || "Couldn't start indexing");

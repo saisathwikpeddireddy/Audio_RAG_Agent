@@ -11,6 +11,8 @@ import { upsertChildren } from "./pinecone";
 import { suggestQuestions } from "./suggest";
 import { saveLibraryEntry } from "./library";
 import { formatSourceName } from "./format";
+import { track } from "./analytics";
+import { transcriptionCostCents } from "./costs";
 import type { LibraryFile } from "./types";
 
 const SOFT_TIMEOUT_MS = 55_000;
@@ -45,18 +47,24 @@ async function indexFile(sid: string, url: string, fileId: string, type: string,
 
   const transcript = sentences.map((s) => s.text).join(" ");
   const suggestions = await suggestQuestions(transcript);
-  return { children: records.length, suggestions };
+  const seconds = words.length ? words[words.length - 1].end : 0;
+  return { children: records.length, suggestions, seconds };
 }
 
 async function runIngestion(sid: string, base: LibraryFile) {
   try {
-    const { children, suggestions } = await withTimeout(
+    const { children, suggestions, seconds } = await withTimeout(
       indexFile(sid, base.blob_url, base.file_id, base.audio_type, base.title ?? base.filename),
       SOFT_TIMEOUT_MS,
       "Indexing took too long. Try a shorter clip, or split the file."
     );
     await saveLibraryEntry(sid, { ...base, status: "ready", children, suggestions, error: undefined });
     console.log(`[ingest:${sid}] ready: ${base.filename} (${children} chunks)`);
+    // Record the indexing cost (transcription is the priced step) for the dashboard.
+    await track({ sid }, "ingest_done", {
+      costCents: transcriptionCostCents(seconds),
+      meta: { file: base.title ?? base.filename, seconds: Math.round(seconds), chunks: children },
+    });
   } catch (error) {
     const message = (error as Error).message || "Ingestion failed";
     console.error(`[ingest:${sid}] failed: ${base.filename} - ${message}`);

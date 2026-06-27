@@ -104,6 +104,20 @@ The public demo is multi-tenant without auth or a database:
   vectors, audio blobs, and manifest - so storage never creeps past the free
   tier. The `demo` session is never touched.
 
+### Analytics & cost (admin)
+
+A password-gated dashboard at **`/admin`** (set `ADMIN_PASSWORD`) tracks the app
+without any third-party service or database:
+
+- **Who / from where** - visits + unique visitors with coarse country/city from
+  Vercel's IP headers (raw IPs are never stored) and top referrers.
+- **What they do** - searches, uploads, files indexed, plays, downloads, errors.
+- **What it costs** - per-action estimates (Groq transcription per second, Gemini
+  per token, Blob storage per GB) rolled into a daily + by-type cost view.
+
+Each action writes one small JSON event to Blob under `analytics/events/`; the
+dashboard reads and aggregates them. See `lib/analytics.ts` and `lib/costs.ts`.
+
 ---
 
 ## Run it
@@ -146,6 +160,9 @@ curl -X POST https://<your-app>/api/seed-demo \
   - `files/route.ts` · `files/[id]/route.ts` - list (merged view) / delete (ownership-checked).
   - `seed-demo/route.ts` - one-time seeder for the shared demo corpus.
   - `cleanup/route.ts` - daily cron that purges expired sessions.
+  - `track/route.ts` - client analytics beacon (visit / play / download).
+  - `admin/stats/route.ts` - password-gated analytics aggregation.
+- `app/admin/page.tsx` - the analytics dashboard.
 - `components/`
   - `Dropzone.tsx` - drag-and-drop upload pipeline.
   - `CapsuleStack.tsx` - source toggle pills.
@@ -153,5 +170,5 @@ curl -X POST https://<your-app>/api/seed-demo \
   - `Vault.tsx` · `HoldToDelete.tsx` - file management drawer + safe delete.
 - `lib/` - `chunking`, `groq`, `pinecone`, `editor`, `suggest`, `library`,
   `ingestPipeline`, `stitch`, `format`, `errors`, `session` (client) +
-  `sessionServer`, `config`, `types`.
+  `sessionServer`, `analytics` + `costs` + `track` (client), `config`, `types`.
 - `types/pinecone.ts` - the single source of truth for the vector metadata schema.

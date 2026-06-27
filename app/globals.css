@@ -1094,3 +1094,89 @@ button.rcard-btn.dl {
   font-size: 11px;
 }
 
+
+/* ---- Admin dashboard ---- */
+.admin-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.admin-stat {
+  border: var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-stat .n {
+  font-family: var(--font-display), sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.admin-stat .l {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-top: 3px;
+}
+
+.admin-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+@media (max-width: 640px) {
+  .admin-cols {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-table th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 8px;
+  border-bottom: 2px solid var(--ink);
+}
+
+.admin-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(20, 20, 20, 0.1);
+  font-variant-numeric: tabular-nums;
+  vertical-align: middle;
+}
+
+.admin-bar {
+  height: 8px;
+  background: var(--cyan);
+  border: 1px solid var(--ink);
+  border-radius: 3px;
+  min-width: 2px;
+}
+
+.admin-chip {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  border: 2px solid var(--ink);
+  border-radius: 6px;
+  padding: 1px 6px;
+  background: var(--surface);
+  white-space: nowrap;
+}
