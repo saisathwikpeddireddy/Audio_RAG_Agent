@@ -1180,3 +1180,55 @@ button.rcard-btn.dl {
   background: var(--surface);
   white-space: nowrap;
 }
+
+/* ---- "How it works" explainer (empty-state landing) ---- */
+.how {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+  margin: 4px 0 18px;
+}
+
+@media (max-width: 640px) {
+  .how {
+    grid-template-columns: 1fr;
+  }
+}
+
+.how-step {
+  border: var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 14px 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+.how-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--ink);
+  border-radius: 7px;
+  background: var(--yellow);
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  box-shadow: 1px 1px 0 var(--ink);
+}
+
+.how-h {
+  font-family: var(--font-display), sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+  margin: 9px 0 4px;
+  color: var(--ink);
+}
+
+.how-p {
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
