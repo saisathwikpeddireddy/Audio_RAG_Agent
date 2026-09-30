@@ -4,7 +4,8 @@
 // events landed. Events are recorded under a "selftest-" session so the
 // dashboard files them as test traffic, never as visitors.
 //
-// GET /api/admin/selftest?q=...  (x-admin-key: ADMIN_PASSWORD). Preview
+// GET /api/admin/selftest?q=...&all=1  (x-admin-key: ADMIN_PASSWORD). all=1 also
+// runs every curated demo question and checks it lands on the right recording. Preview
 // deployments sit behind Vercel Authentication, so there it runs without a key.
 
 import { NextResponse } from "next/server";
@@ -22,6 +23,17 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const READBACK_MS = 12_000;
+
+interface DemoCheck {
+  question: string;
+  expected: string;
+  status: number;
+  topSource?: string;
+  rightSource: boolean;
+  topScore: number;
+  answer?: string;
+  topText?: string;
+}
 
 function authorized(request: Request): boolean {
   if (process.env.VERCEL_ENV === "preview" || process.env.NODE_ENV === "development") return true;
@@ -119,6 +131,40 @@ export async function GET(request: Request) {
     error: f.error,
   }));
 
+  // ?all=1: also run every curated demo question, and check that its best hit
+  // comes from the recording the question was written for.
+  let demoQuestions: DemoCheck[] | undefined;
+  if (url.searchParams.get("all") === "1") {
+    const jobs = DEMO_SOURCES.flatMap((src) => src.questions.map((q) => ({ src, q })));
+    demoQuestions = [];
+    for (let i = 0; i < jobs.length; i += 3) {
+      const batch = await Promise.all(
+        jobs.slice(i, i + 3).map(async ({ src, q }): Promise<DemoCheck> => {
+          const res = await searchPOST(
+            new Request(`${origin}/api/search`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ query: q }),
+            })
+          );
+          const body = (await res.json().catch(() => ({}))) as typeof searchBody;
+          const top = body.hits?.[0];
+          return {
+            question: q,
+            expected: src.title,
+            status: res.status,
+            topSource: top?.title,
+            rightSource: top?.title === src.title,
+            topScore: top ? Math.round(top._score * 100) : 0,
+            answer: body.answer ?? body.message ?? body.note,
+            topText: top?.child_text?.slice(0, 200),
+          };
+        })
+      );
+      demoQuestions.push(...batch);
+    }
+  }
+
   const hits = (searchBody.hits ?? []).map((h) => ({
     title: h.title,
     at: `${Math.floor(h.start_time_ms / 60000)}:${String(Math.floor((h.start_time_ms / 1000) % 60)).padStart(2, "0")}`,
@@ -143,6 +189,7 @@ export async function GET(request: Request) {
       hits,
     },
     playBeacon: { status: trackRes.status },
+    demoQuestions,
     recorded,
     storeError,
     demo,
