@@ -4,15 +4,16 @@
 // into Blob (fast, CORS-friendly playback, no hotlinking) and indexes it with the
 // hand-written suggested questions. No secret or manual step needed after deploy.
 
-import { put, list } from "@vercel/blob";
+import { put, list, del } from "@vercel/blob";
 import { DEMO_SOURCES, wikimediaCandidates, type DemoSource } from "./demoCorpus";
 import { getSessionManifest, saveLibraryEntry } from "./library";
 import { runIngestion } from "./ingestPipeline";
 import { DEMO_SESSION } from "./sessionServer";
 import type { LibraryFile } from "./types";
 
-const RETRY_AFTER_MS = 20 * 60 * 1000; // re-attempt a failed/stuck file after 20 min
-const LEASE_PATH = "demo-seed/lease.json";
+const RETRY_FAILED_MS = 20 * 60 * 1000; // re-attempt a failed file after 20 min
+const STUCK_MS = 3 * 60 * 1000; // "processing" this long means its function died
+const LEASE_PREFIX = "demo-seed/lease-";
 const LEASE_MS = 90_000; // one seeding run at a time across function instances
 const BUDGET_MS = 55_000; // stay under the 60s function limit
 const MAX_BYTES = 24_000_000; // Groq's transcription cap is 25 MB
@@ -29,26 +30,25 @@ export function missingDemoSources(manifest: LibraryFile[]): DemoSource[] {
     const f = byId.get(s.id);
     if (!f) return true;
     if (f.status === "ready") return false;
-    return now - (Date.parse(f.indexed_at) || 0) > RETRY_AFTER_MS;
+    const age = now - (Date.parse(f.indexed_at) || 0);
+    return age > (f.status === "failed" ? RETRY_FAILED_MS : STUCK_MS);
   });
 }
 
 // Best-effort cross-instance lease so a burst of first visitors doesn't kick off
-// several parallel seeding runs (each would transcribe the same audio).
+// several parallel seeding runs (each would transcribe the same audio). Judged by
+// list() upload times, not by reading a blob back (the CDN can serve stale copies).
 async function acquireLease(): Promise<boolean> {
   try {
-    const { blobs } = await list({ prefix: LEASE_PATH, limit: 1 });
-    if (blobs.length) {
-      const res = await fetch(blobs[0].url, { cache: "no-store" });
-      const lease = (await res.json().catch(() => ({}))) as { until?: number };
-      if ((lease.until ?? 0) > Date.now()) return false;
-    }
-    await put(LEASE_PATH, JSON.stringify({ until: Date.now() + LEASE_MS }), {
+    const { blobs } = await list({ prefix: LEASE_PREFIX });
+    const now = Date.now();
+    if (blobs.some((b) => now - new Date(b.uploadedAt).getTime() < LEASE_MS)) return false;
+    await put(`${LEASE_PREFIX}${now}.json`, "{}", {
       access: "public",
       contentType: "application/json",
       addRandomSuffix: false,
-      cacheControlMaxAge: 0,
     });
+    if (blobs.length) await del(blobs.map((b) => b.url)).catch(() => {});
     return true;
   } catch {
     return false;

@@ -1,22 +1,41 @@
-// Per-session "library" of indexed files, persisted as one JSON manifest per
-// session in Vercel Blob (`library/{sessionId}/manifest.json`). There's no
-// database - this is enough to remember a visitor's files across reloads and to
-// scope queries. The shared, read-only "demo" session is merged into every
+// Per-session "library" of indexed files, persisted as a JSON manifest per
+// session in Vercel Blob (`library/{sessionId}/manifest-{version}.json`). There's
+// no database - this is enough to remember a visitor's files across reloads and
+// to scope queries. The shared, read-only "demo" session is merged into every
 // visitor's view so the app is never empty on first visit.
+//
+// Every write goes to a NEW path, and readers pick the newest version from
+// list(). Overwriting one fixed path doesn't work: the Blob CDN keeps serving the
+// old copy for minutes, so a file that finished indexing still read back as
+// "processing" (and a stale read-modify-write could undo the update entirely).
 
 import { put, list, del } from "@vercel/blob";
 import type { LibraryFile } from "./types";
 import { DEMO_SESSION } from "./sessionServer";
 
-function manifestPath(sid: string): string {
-  return `library/${sid}/manifest.json`;
+function manifestPrefix(sid: string): string {
+  return `library/${sid}/manifest`;
+}
+
+// Version stamp from a manifest pathname. The pre-versioning fixed path
+// (`manifest.json`) counts as the oldest possible version.
+function manifestVersion(pathname: string): number {
+  const m = pathname.match(/\/manifest-(\d+)\.json$/);
+  return m ? Number(m[1]) : 0;
+}
+
+async function listManifests(sid: string) {
+  const { blobs } = await list({ prefix: manifestPrefix(sid) });
+  return blobs
+    .filter((b) => /\/manifest(-\d+)?\.json$/.test(b.pathname))
+    .sort((a, b) => manifestVersion(b.pathname) - manifestVersion(a.pathname));
 }
 
 async function readManifest(sid: string): Promise<LibraryFile[]> {
   try {
-    const { blobs } = await list({ prefix: manifestPath(sid), limit: 1 });
-    if (!blobs.length) return [];
-    const res = await fetch(blobs[0].url, { cache: "no-store" });
+    const [newest] = await listManifests(sid);
+    if (!newest) return [];
+    const res = await fetch(newest.url, { cache: "no-store" });
     if (!res.ok) return [];
     const data = (await res.json()) as unknown;
     return Array.isArray(data) ? (data as LibraryFile[]) : [];
@@ -25,13 +44,25 @@ async function readManifest(sid: string): Promise<LibraryFile[]> {
   }
 }
 
+let lastVersion = 0;
+
 async function writeManifest(sid: string, files: LibraryFile[]): Promise<void> {
-  await put(manifestPath(sid), JSON.stringify(files), {
+  // Strictly increasing within this instance, even for writes in the same ms.
+  const version = Math.max(Date.now(), lastVersion + 1);
+  lastVersion = version;
+  await put(`${manifestPrefix(sid)}-${version}.json`, JSON.stringify(files), {
     access: "public",
     contentType: "application/json",
     addRandomSuffix: false,
-    cacheControlMaxAge: 0, // status changes must be visible to pollers immediately
   });
+  // Drop superseded versions (only older ones, so a concurrent newer write from
+  // another instance survives). Best-effort: a leftover old version is harmless.
+  try {
+    const stale = (await listManifests(sid)).filter((b) => manifestVersion(b.pathname) < version);
+    if (stale.length) await del(stale.map((b) => b.url));
+  } catch {
+    // ignore
+  }
 }
 
 // A visitor's view = the shared demo corpus (flagged read-only, in its curated
@@ -101,7 +132,7 @@ export async function listSessionIds(): Promise<string[]> {
   do {
     const r = await list({ prefix: "library/", cursor });
     for (const b of r.blobs) {
-      const m = b.pathname.match(/^library\/([^/]+)\/manifest\.json$/);
+      const m = b.pathname.match(/^library\/([^/]+)\/manifest(?:-\d+)?\.json$/);
       if (m) ids.add(m[1]);
     }
     cursor = r.hasMore ? r.cursor : undefined;
@@ -109,11 +140,11 @@ export async function listSessionIds(): Promise<string[]> {
   return [...ids];
 }
 
-// Delete a session's manifest blob outright (cron, after purging its contents).
+// Delete a session's manifest (every version) outright (cron, after purging its contents).
 export async function deleteManifest(sid: string): Promise<void> {
   try {
-    const { blobs } = await list({ prefix: manifestPath(sid), limit: 1 });
-    for (const b of blobs) await del(b.url);
+    const blobs = await listManifests(sid);
+    if (blobs.length) await del(blobs.map((b) => b.url));
   } catch {
     // best-effort
   }
