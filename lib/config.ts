@@ -18,7 +18,7 @@ export const config = {
   // "gemini" (default) or "groq" fallback for the editor LLM.
   editorProvider: (process.env.EDITOR_PROVIDER ?? "gemini").toLowerCase(),
   geminiModel: process.env.GEMINI_MODEL ?? "gemini-2.5-flash",
-  groqLlmModel: process.env.GROQ_LLM_MODEL ?? "llama-3.3-70b-versatile",
+  groqLlmModel: process.env.GROQ_LLM_MODEL ?? "openai/gpt-oss-120b", // more fallbacks in lib/groq.ts
 
   topK: parseInt(process.env.TOP_K ?? "5", 10),
 

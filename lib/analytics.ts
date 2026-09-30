@@ -10,13 +10,15 @@ import { sessionIdFromRequest } from "./sessionServer";
 
 export type EventType =
   | "visit"
+  | "engaged" // first real interaction (click, key, touch, scroll) on a page view
   | "search"
   | "upload"
   | "ingest_done"
   | "play"
   | "download"
   | "delete"
-  | "error";
+  | "error"
+  | "selftest";
 
 export interface AnalyticsEvent {
   ts: number;
@@ -66,13 +68,15 @@ function dayKey(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10); // YYYY-MM-DD
 }
 
-// Record one event. Best-effort: any failure is swallowed so analytics can never
-// break a user action. Prefer calling via waitUntil() so it doesn't add latency.
+// Record one event. Best-effort: a failure is logged (so a broken Blob token shows
+// up in the runtime logs instead of as silent zeros) but never thrown, so
+// analytics can never break a user action. Prefer calling via waitUntil() so it
+// doesn't add latency. Resolves to the stored pathname, or null on failure.
 export async function track(
   ctx: EventContext,
   type: EventType,
   opts?: { costCents?: number; referer?: string; meta?: Record<string, string | number> }
-): Promise<void> {
+): Promise<string | null> {
   try {
     const ts = Date.now();
     const ev: AnalyticsEvent = {
@@ -87,15 +91,19 @@ export async function track(
       costCents: opts?.costCents,
       meta: opts?.meta,
     };
-    const rand = (globalThis.crypto?.randomUUID?.() ?? `${ts}${Math.random()}`).slice(0, 8);
-    await put(`analytics/events/${dayKey(ts)}/${ts}-${rand}.json`, JSON.stringify(ev), {
+    const rand = (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)).slice(0, 8);
+    const path = `analytics/events/${dayKey(ts)}/${ts}-${rand}.json`;
+    await put(path, JSON.stringify(ev), {
       access: "public",
       addRandomSuffix: false,
       contentType: "application/json",
       cacheControlMaxAge: 31_536_000,
     });
-  } catch {
+    return path;
+  } catch (e) {
     // analytics must never break the request
+    console.error(`[analytics] failed to record "${type}": ${(e as Error).message}`);
+    return null;
   }
 }
 

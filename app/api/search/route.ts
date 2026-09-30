@@ -39,7 +39,18 @@ export async function POST(request: Request) {
       });
     }
 
-    const { answer, clips } = await generateReel(query, hits);
+    // The written answer is a bonus on top of the retrieved moments: if every
+    // answer model is down or rate-limited, still return the moments.
+    let answer = "";
+    let clips: Awaited<ReturnType<typeof generateReel>>["clips"] = [];
+    let answerError: string | undefined;
+    try {
+      ({ answer, clips } = await generateReel(query, hits));
+    } catch (err) {
+      answerError = classifyError(err).code;
+      console.error(`[search] answer step failed: ${(err as Error).message.slice(0, 300)}`);
+      waitUntil(track(ctx, "error", { meta: { where: "answer", code: answerError } }));
+    }
     const inputChars = query.length + hits.reduce((n, h) => n + (h.child_text?.length || 0), 0);
     waitUntil(
       track(ctx, "search", {
@@ -47,7 +58,15 @@ export async function POST(request: Request) {
         meta: { hits: hits.length, q: query.length },
       })
     );
-    return NextResponse.json({ hits, clips, answer, rawClips: clips.length });
+    return NextResponse.json({
+      hits,
+      clips,
+      answer,
+      rawClips: clips.length,
+      ...(answerError && {
+        note: "Couldn't write a summary right now, but here are the matching moments.",
+      }),
+    });
   } catch (error) {
     // Classify provider failures (e.g. Groq/Gemini 429s) into a friendly,
     // machine-readable payload the UI can theme instead of a raw 500.

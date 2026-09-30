@@ -64,7 +64,7 @@ export default function Vault({
                   >
                     <div className="vault-info">
                       <div className="vault-name" title={f.filename}>
-                        {formatSourceName(f.title || f.filename)}
+                        {f.demo ? f.title : formatSourceName(f.title || f.filename)}
                       </div>
                       <div className="muted vault-meta">
                         {f.status === "ready" &&

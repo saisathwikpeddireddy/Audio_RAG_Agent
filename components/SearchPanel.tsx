@@ -183,9 +183,11 @@ function AudioResultCard({
 export default function SearchPanel({
   library,
   selected,
+  demo = false,
 }: {
   library: LibraryFile[];
   selected: string[];
+  demo?: boolean; // demo recordings are loaded: tailor the placeholder
 }) {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -232,14 +234,19 @@ export default function SearchPanel({
     [hits, colorFor]
   );
 
-  // Grounded one-click prompts from whichever sources are currently active.
+  // Grounded one-click prompts from whichever sources are currently active,
+  // taken round-robin so every selected source gets a question in.
   const chips = useMemo(() => {
     const sel = new Set(selected);
+    const lists = library
+      .filter((f) => f.status === "ready" && sel.has(f.file_id))
+      .map((f) => f.suggestions ?? []);
     const seen = new Set<string>();
     const out: string[] = [];
-    for (const f of library) {
-      if (f.status !== "ready" || !sel.has(f.file_id)) continue;
-      for (const q of f.suggestions ?? []) {
+    for (let round = 0; out.length < 6 && lists.some((l) => l.length > round); round++) {
+      for (const l of lists) {
+        const q = l[round];
+        if (!q || out.length >= 6) continue;
         const key = q.toLowerCase();
         if (!seen.has(key)) {
           seen.add(key);
@@ -247,7 +254,7 @@ export default function SearchPanel({
         }
       }
     }
-    return out.slice(0, 6);
+    return out;
   }, [library, selected]);
 
   const registerRef = useCallback((index: number, el: HTMLDivElement | null) => {
@@ -446,7 +453,11 @@ export default function SearchPanel({
       <div className="row">
         <input
           type="text"
-          placeholder="Ask about your audio (e.g., “What was the pricing decision?”)"
+          placeholder={
+            demo
+              ? "Ask the speeches anything (e.g., “What did Eisenhower warn about?”)"
+              : "Ask about your audio (e.g., “What was the pricing decision?”)"
+          }
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && run()}

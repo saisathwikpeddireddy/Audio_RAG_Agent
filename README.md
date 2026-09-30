@@ -63,7 +63,7 @@ you can play, read along to (karaoke-style), and download.
 | Transcription (word timestamps) | **Groq** `whisper-large-v3-turbo` |
 | Embeddings | **Pinecone** integrated `llama-text-embed-v2` (free Starter) |
 | Vector DB | **Pinecone** serverless |
-| Answer LLM | **Gemini** `gemini-2.5-flash`, automatic **Groq Llama** fallback |
+| Answer LLM | **Gemini** `gemini-2.5-flash`, automatic **Groq** fallback |
 | File storage | **Vercel Blob** |
 | Audio playback + slicing | **Web Audio API** (browser) |
 | Hosting | **Vercel** |
@@ -96,9 +96,14 @@ The public demo is multi-tenant without auth or a database:
   carries a `session_id`; Blob uploads and the JSON manifest live under
   `library/{sid}/`. Search is filtered to `session_id ∈ { yours, "demo" }`, so
   visitors never see or delete each other's files.
-- **Shared demo corpus** - the special `demo` session is pre-seeded and merged
-  read-only into everyone's view, so a first-time visitor can search instantly.
-  Seed it once after deploy (`SEED_SECRET` + `POST /api/seed-demo`).
+- **Shared demo corpus** - the special `demo` session holds three public-domain
+  speeches (JFK's 1962 Moon speech, FDR's first Fireside Chat, Eisenhower's
+  farewell address, from Wikimedia Commons) with hand-written suggested
+  questions, merged read-only into everyone's view under a clear **DEMO** banner.
+  It seeds itself: the first `/api/files` request after deploy copies the audio
+  into Blob and indexes it in the background (`lib/demoCorpus.ts`,
+  `lib/demoSeed.ts`), and retries anything that failed. Visitors can **hide the
+  demo** to work only with their own audio.
 - **Auto-expiry** - a daily Vercel Cron (`/api/cleanup`, guarded by
   `CRON_SECRET`) purges sessions whose newest file is >24h old - deleting their
   vectors, audio blobs, and manifest - so storage never creeps past the free
@@ -112,6 +117,13 @@ without any third-party service or database:
 - **Who / from where** - visits + unique visitors with coarse country/city from
   Vercel's IP headers (raw IPs are never stored) and top referrers.
 - **What they do** - searches, uploads, files indexed, plays, downloads, errors.
+- **Humans vs bots** - every event keeps its user agent. Known crawlers, link
+  unfurlers, monitors and headless browsers are tagged as bots, and a visit only
+  counts as human after a real interaction (click, tap, key press, scroll, or any
+  search/play/upload). Page loads with no interaction are shown separately.
+- **Self-test** - a button (or `GET /api/admin/selftest`) runs one real search
+  and one play beacon through the live handlers and confirms both were recorded.
+  Test traffic is filed separately and never counted.
 - **What it costs** - per-action estimates (Groq transcription per second, Gemini
   per token, Blob storage per GB) rolled into a daily + by-type cost view.
 
@@ -145,8 +157,8 @@ npm run dev                  # http://localhost:3000
 project's Storage tab - `BLOB_READ_WRITE_TOKEN` is injected automatically. The
 cleanup cron in `vercel.json` runs automatically on Vercel.
 
-**Seed the demo corpus (once):** upload a public-domain clip to your Blob store,
-then point the seeder at it so every visitor lands on searchable content:
+**Demo corpus:** seeds itself on first load (see above). To add an extra clip by
+hand, use the seeder:
 
 ```bash
 curl -X POST https://<your-app>/api/seed-demo \
@@ -164,10 +176,11 @@ curl -X POST https://<your-app>/api/seed-demo \
   - `ingest/route.ts` - session-scoped kickoff (background `waitUntil`, 202).
   - `search/route.ts` - Pinecone query (scoped to session + demo) → answer LLM.
   - `files/route.ts` · `files/[id]/route.ts` - list (merged view) / delete (ownership-checked).
-  - `seed-demo/route.ts` - one-time seeder for the shared demo corpus.
+  - `seed-demo/route.ts` - manual seeder for extra demo clips.
   - `cleanup/route.ts` - daily cron that purges expired sessions.
-  - `track/route.ts` - client analytics beacon (visit / play / download).
-  - `admin/stats/route.ts` - password-gated analytics aggregation.
+  - `track/route.ts` - client analytics beacon (visit / engaged / play / download).
+  - `admin/stats/route.ts` - password-gated analytics aggregation (bot-aware).
+  - `admin/selftest/route.ts` - end-to-end search + tracking check.
 - `app/admin/page.tsx` - the analytics dashboard.
 - `components/`
   - `Dropzone.tsx` - drag-and-drop upload pipeline.
@@ -175,6 +188,6 @@ curl -X POST https://<your-app>/api/seed-demo \
   - `SearchPanel.tsx` - search box, suggestion chips, result cards, karaoke + waveform.
   - `Vault.tsx` · `HoldToDelete.tsx` - file management drawer + safe delete.
 - `lib/` - `chunking`, `groq`, `pinecone`, `editor`, `suggest`, `library`,
-  `ingestPipeline`, `stitch`, `format`, `errors`, `session` (client) +
+  `ingestPipeline`, `demoCorpus` + `demoSeed`, `bots`, `stitch`, `format`, `errors`, `session` (client) +
   `sessionServer`, `analytics` + `costs` + `track` (client), `config`, `types`.
 - `types/pinecone.ts` - the single source of truth for the vector metadata schema.

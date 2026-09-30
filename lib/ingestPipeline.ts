@@ -36,7 +36,14 @@ function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> 
   ]);
 }
 
-async function indexFile(sid: string, url: string, fileId: string, type: string, title: string) {
+async function indexFile(
+  sid: string,
+  url: string,
+  fileId: string,
+  type: string,
+  title: string,
+  fixedSuggestions?: string[]
+) {
   const words = await transcribeUrlWords(url);
   if (!words.length) throw new Error("No speech detected in this audio.");
 
@@ -46,16 +53,30 @@ async function indexFile(sid: string, url: string, fileId: string, type: string,
   if (records.length) await upsertChildren(records);
 
   const transcript = sentences.map((s) => s.text).join(" ");
-  const suggestions = await suggestQuestions(transcript);
+  const suggestions = fixedSuggestions ?? (await suggestQuestions(transcript));
   const seconds = words.length ? words[words.length - 1].end : 0;
   return { children: records.length, suggestions, seconds };
 }
 
-async function runIngestion(sid: string, base: LibraryFile) {
+// Transcribe + index one manifest entry and persist the outcome. Never throws.
+// `suggestions` skips the LLM step with hand-written questions (demo corpus);
+// `timeoutMs` shrinks the budget when the caller already spent part of it.
+export async function runIngestion(
+  sid: string,
+  base: LibraryFile,
+  opts: { suggestions?: string[]; timeoutMs?: number } = {}
+) {
   try {
     const { children, suggestions, seconds } = await withTimeout(
-      indexFile(sid, base.blob_url, base.file_id, base.audio_type, base.title ?? base.filename),
-      SOFT_TIMEOUT_MS,
+      indexFile(
+        sid,
+        base.blob_url,
+        base.file_id,
+        base.audio_type,
+        base.title ?? base.filename,
+        opts.suggestions
+      ),
+      opts.timeoutMs ?? SOFT_TIMEOUT_MS,
       "Indexing took too long. Try a shorter clip, or split the file."
     );
     await saveLibraryEntry(sid, { ...base, status: "ready", children, suggestions, error: undefined });
