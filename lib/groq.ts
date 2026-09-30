@@ -52,29 +52,64 @@ export async function transcribeUrlWords(audioUrl: string): Promise<Word[]> {
   }));
 }
 
-// Groq Llama as the fallback "editor" LLM (used when EDITOR_PROVIDER=groq).
-export async function groqChatJson(systemPrompt: string, userPrompt: string): Promise<string> {
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${config.groqApiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: config.groqLlmModel,
-      temperature: 0.2,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
+// Groq retires chat models over time (llama-3.3-70b-versatile now 404s for this
+// account), so try the configured model first, then current alternatives,
+// skipping any that don't exist. The first one that works is remembered.
+const FALLBACK_CHAT_MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "qwen/qwen3-32b",
+  "llama-3.1-8b-instant",
+];
+let workingChatModel: string | null = null;
 
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`Groq editor failed (${res.status}): ${detail.slice(0, 500)}`);
+function chatModels(): string[] {
+  const all = [workingChatModel, config.groqLlmModel, ...FALLBACK_CHAT_MODELS].filter(
+    (m): m is string => !!m
+  );
+  return [...new Set(all)];
+}
+
+// Groq chat in JSON mode: the fallback "editor" LLM (EDITOR_PROVIDER=groq, or
+// when Gemini fails) and the suggested-question generator.
+export async function groqChatJson(systemPrompt: string, userPrompt: string): Promise<string> {
+  let lastError = "";
+  for (const model of chatModels()) {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${config.groqApiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+    });
+
+    if (!res.ok) {
+      const detail = await res.text();
+      lastError = `Groq editor failed (${res.status}) on ${model}: ${detail.slice(0, 300)}`;
+      // Unknown / retired model, or one without JSON mode: try the next one.
+      // Anything else (auth, rate limit) is a real error.
+      if (
+        res.status === 404 ||
+        /model_not_found|decommissioned|does not exist|response_format|json mode/i.test(detail)
+      ) {
+        if (workingChatModel === model) workingChatModel = null;
+        continue;
+      }
+      throw new Error(lastError);
+    }
+    workingChatModel = model;
+    const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
+    return data.choices?.[0]?.message?.content ?? "";
   }
-  const data = (await res.json()) as { choices: Array<{ message: { content: string } }> };
-  return data.choices?.[0]?.message?.content ?? "";
+  throw new Error(lastError || "No Groq chat model available.");
 }

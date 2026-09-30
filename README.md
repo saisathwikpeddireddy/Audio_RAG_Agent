@@ -63,7 +63,7 @@ you can play, read along to (karaoke-style), and download.
 | Transcription (word timestamps) | **Groq** `whisper-large-v3-turbo` |
 | Embeddings | **Pinecone** integrated `llama-text-embed-v2` (free Starter) |
 | Vector DB | **Pinecone** serverless |
-| Answer LLM | **Gemini** `gemini-2.5-flash`, automatic **Groq Llama** fallback |
+| Answer LLM | **Gemini** `gemini-2.5-flash`, automatic **Groq** fallback |
 | File storage | **Vercel Blob** |
 | Audio playback + slicing | **Web Audio API** (browser) |
 | Hosting | **Vercel** |
