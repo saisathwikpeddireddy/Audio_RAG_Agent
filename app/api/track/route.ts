@@ -1,4 +1,4 @@
-// Client beacon sink for browser-only events (visit / play / download). Writes
+// Client beacon sink for browser-only events (visit / engaged / play / download). Writes
 // the event in the background and returns 204 immediately.
 
 import { NextResponse } from "next/server";
@@ -7,7 +7,7 @@ import { contextFromRequest, track, type EventType } from "@/lib/analytics";
 
 export const runtime = "nodejs";
 
-const ALLOWED = new Set<EventType>(["visit", "play", "download"]);
+const ALLOWED = new Set<EventType>(["visit", "engaged", "play", "download"]);
 
 function sanitizeMeta(m: unknown): Record<string, string | number> | undefined {
   if (!m || typeof m !== "object") return undefined;

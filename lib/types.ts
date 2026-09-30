@@ -53,4 +53,13 @@ export interface LibraryFile {
   status: FileStatus;
   error?: string;
   readOnly?: boolean; // transient (UI): true for shared demo files
+  demo?: DemoInfo; // set on the curated demo corpus only
+}
+
+// Provenance shown for curated demo recordings.
+export interface DemoInfo {
+  order: number;
+  blurb: string;
+  credit: string;
+  sourcePage: string;
 }

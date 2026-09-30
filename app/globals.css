@@ -88,6 +88,7 @@ body {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap; /* the sources button drops below the title on narrow phones */
   gap: 14px;
 }
 
@@ -1231,4 +1232,142 @@ button.rcard-btn.dl {
   font-size: 12.5px;
   line-height: 1.45;
   text-wrap: pretty;
+}
+
+/* ---- Demo banner (preloaded sample recordings) ---- */
+.demo-banner {
+  background: var(--surface);
+  border: var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.demo-banner-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--font-display), sans-serif;
+  font-size: 16px;
+}
+
+.demo-badge {
+  background: var(--yellow);
+  border: var(--border);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  box-shadow: var(--shadow-sm);
+}
+
+.demo-banner-p {
+  margin: 8px 0 6px;
+  font-size: 13px;
+}
+
+.demo-list {
+  margin: 0 0 10px;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.demo-banner-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.demo-banner-foot a {
+  color: inherit;
+}
+
+.demo-hide,
+.demo-show {
+  font-family: var(--font-mono), monospace;
+  font-size: 12px;
+  font-weight: 700;
+  border: var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--ink);
+  padding: 6px 12px;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+
+.demo-hide:hover,
+.demo-show:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow);
+}
+
+.demo-show {
+  margin-bottom: 14px;
+}
+
+/* ---- Admin: traffic-kind pills + filters ---- */
+.kind {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1.5px solid var(--ink);
+  white-space: nowrap;
+}
+
+.kind-human {
+  background: #bbf7d0;
+}
+
+.kind-unverified {
+  background: #fef3c7;
+}
+
+.kind-bot {
+  background: #fecaca;
+}
+
+.kind-test,
+.kind-system {
+  background: #e5e7eb;
+}
+
+.admin-filters {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.admin-filters button {
+  font-family: var(--font-mono), monospace;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1.5px solid var(--ink);
+  border-radius: 14px;
+  padding: 3px 10px;
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.admin-filters button.on {
+  background: var(--yellow);
+}
+
+.selftest pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  margin: 8px 0 0;
 }
